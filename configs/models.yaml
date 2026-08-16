@@ -1,0 +1,91 @@
+ensemble:
+  default_weights:
+    hgbr: 1.0
+    dc: 0.0
+    nb: 0.0
+    elo: 0.0
+  learning:
+    window: 500
+    min_samples: 150
+dixon_coles:
+  tau_default: 0.0
+  tau_range:
+  - -0.2
+  - 0.2
+negbin:
+  phi_default: 1000000000.0
+elo_goal:
+  base: 1.6
+  spread: 1.0
+training:
+  cv_folds: 5
+  holdout_fraction: 0.2
+  sample_weight:
+    enabled: false
+    method: time_decay
+    half_life_days: 365
+    min_weight: 0.05
+    normalize: true
+leagues:
+  premier_league:
+    model_type: HGBR
+    version: 1.0.0
+    parameters:
+      loss: poisson
+      learning_rate: 0.03
+      max_depth: 6
+      min_samples_leaf: 10
+      max_iter: 300
+      early_stopping_rounds: 25
+      validation_fraction: 0.15
+      random_state: 42
+  la_liga:
+    model_type: HGBR
+    version: 1.0.0
+    parameters:
+      loss: poisson
+      learning_rate: 0.03
+      max_depth: 6
+      min_samples_leaf: 10
+      max_iter: 300
+      early_stopping_rounds: 25
+      validation_fraction: 0.15
+      random_state: 42
+  bundesliga:
+    model_type: HGBR
+    version: 1.0.0
+    parameters:
+      loss: poisson
+      learning_rate: 0.03
+      max_depth: 6
+      min_samples_leaf: 10
+      max_iter: 300
+      early_stopping_rounds: 25
+      validation_fraction: 0.15
+      random_state: 42
+  serie_a:
+    model_type: HGBR
+    version: 1.0.0
+    parameters:
+      loss: poisson
+      learning_rate: 0.03
+      max_depth: 6
+      min_samples_leaf: 10
+      max_iter: 300
+      early_stopping_rounds: 25
+      validation_fraction: 0.15
+      random_state: 42
+  ligue_1:
+    model_type: HGBR
+    version: 1.0.0
+    parameters:
+      loss: poisson
+      learning_rate: 0.03
+      max_depth: 6
+      min_samples_leaf: 10
+      max_iter: 300
+      early_stopping_rounds: 25
+      validation_fraction: 0.15
+      random_state: 42
+features:
+  h2h: true

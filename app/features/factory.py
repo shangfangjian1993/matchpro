@@ -1,0 +1,32 @@
+"""Feature Factory 统一入口(审查 §14/§18:ELO 也由 Factory 管理,单一体系)。
+
+顺序:strength(ELO)→ attack_defense(进失球/指标)→ form(胜率/近期)→ h2h(交手)。
+"""
+from __future__ import annotations
+
+import pandas as pd
+
+from app.features.rolling import build_long_table
+from app.features.strength import compute as compute_strength
+from app.features.attack_defense import (compute_attack_defense,
+                                         compute_metric_rolling,
+                                         compute_side_metric_rolling)
+from app.features.form import compute_form
+from app.features.h2h import compute_h2h
+
+
+def compute_all(df: pd.DataFrame,
+                league_type: str | None = None,
+                metric_columns: tuple = (),
+                side_metric_columns: tuple = ()) -> pd.DataFrame:
+    """统一特征计算(审查 §18:ELO 注入也在 Factory 内,外部不再 with_elo_features)。"""
+    out = compute_strength(df, league_type)  # 01 Team Strength(ELO)
+    long, _ = build_long_table(out)
+    out = compute_attack_defense(out, long)  # 02 Attack/Defense
+    out = compute_form(out, long)             # 03 Form & Momentum
+    out = compute_h2h(out)                    # 06 Opponent Interaction
+    for metric in metric_columns:
+        out = compute_metric_rolling(out, metric, metric)
+    for metric in side_metric_columns:
+        out = compute_side_metric_rolling(out, metric, metric)
+    return out

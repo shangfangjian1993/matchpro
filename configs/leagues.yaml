@@ -1,0 +1,16 @@
+leagues:
+  premier_league:
+    country: England
+    competition_type: league
+  la_liga:
+    country: Spain
+    competition_type: league
+  bundesliga:
+    country: Germany
+    competition_type: league
+  serie_a:
+    country: Italy
+    competition_type: league
+  ligue_1:
+    country: France
+    competition_type: league

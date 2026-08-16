@@ -1,0 +1,23 @@
+database:
+  default_url: sqlite:///data/football.db
+api:
+  host: 0.0.0.0
+  port: 8000
+  workers: 2
+  rate_limit_per_minute: 200
+scheduler:
+  daily:
+  - 08:00
+  - '22:00'
+  fixtures: 09:30
+  injury: '14:00'
+  weekly_retrain: Mon 03:00
+data_sources:
+  football_data_org:
+    base: https://api.football-data.org/v4
+  football_data_co_uk:
+    base: https://www.football-data.co.uk/mmz4281
+  understat:
+    base: https://understat.com/getLeagueData
+  api_football:
+    base: https://v3.football.api-sports.io

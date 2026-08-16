@@ -1,0 +1,39 @@
+# 构建/运行时产物
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.log
+nohup.out
+logs/
+
+# 环境与密钥
+.env
+.env.local
+
+# 运行数据(由采集/训练生成)
+data/football.db
+data/*.db*
+app/data/football.db
+
+# 模型/校准/权重资产(由训练生成,体积大不入库)
+*.pkl
+*.pkl.sha256
+*.pkl.json
+artifacts/models/
+artifacts/ensemble/
+artifacts/calibration/
+runtime/active_models.json
+app/models/.train.lock
+
+# 前端依赖与构建
+frontend/node_modules/
+frontend/dist/
+
+# 系统
+.DS_Store
+Thumbs.db
+*.7z
+*.zip

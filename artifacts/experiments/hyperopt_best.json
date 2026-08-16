@@ -1,0 +1,17 @@
+{
+  "best_params": {
+    "learning_rate": 0.03,
+    "max_depth": 6,
+    "max_iter": 300,
+    "min_samples_leaf": 10,
+    "early_stopping_rounds": 25,
+    "validation_fraction": 0.15,
+    "random_state": 42,
+    "loss": "poisson"
+  },
+  "metrics": {
+    "log_loss": 1.02639,
+    "brier": 0.61848,
+    "rps": 0.39095
+  }
+}
