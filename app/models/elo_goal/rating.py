@@ -119,22 +119,38 @@ def with_elo_features(df, is_national: bool = False):
     aways = df["away_team"].to_numpy()
     ghs = df["home_goals"].to_numpy() if "home_goals" in df.columns else None
     gas = df["away_goals"].to_numpy() if "away_goals" in df.columns else None
+    dates = df["date"].to_numpy()
     n = len(df)
     home_elo = np.empty(n); away_elo = np.empty(n)
     home_att = np.empty(n); away_att = np.empty(n)
     home_def = np.empty(n); away_def = np.empty(n)
     is_nan = (ghs is None) or (gas is None)
-    for i in range(n):
-        h, a = homes[i], aways[i]
-        home_elo[i] = overall.rating(h); away_elo[i] = overall.rating(a)
-        home_att[i] = attack.rating(h); away_att[i] = attack.rating(a)
-        home_def[i] = defense.rating(h); away_def[i] = defense.rating(a)
-        gh, ga = (ghs[i], gas[i]) if not is_nan else (np.nan, np.nan)
-        if gh is not None and ga is not None and gh == gh and ga == ga:  # 非 None 非 NaN
-            ha = 0.0 if is_national else overall.home_advantage
-            overall.update(h, a, int(gh), int(ga), home_adv=ha, is_national=is_national)
-            attack.update(h, a, int(gh), int(ga), home_adv=ha, is_national=is_national, mode="attack")
-            defense.update(h, a, int(gh), int(ga), home_adv=ha, is_national=is_national, mode="defense")
+    # 审查 P1-6:ELO 同日时间穿越 —— DB date 无时间戳,同日比赛并列排序。
+    # 修复:按"日初快照"计算同一天全部比赛的特征(同场同时开赛,互不影响),
+    # 当天结束后再统一更新 ELO(次日起基于前一日最终状态)。
+    i = 0
+    while i < n:
+        j = i
+        while j < n and dates[j] == dates[i]:
+            j += 1
+        o_snap = dict(overall._ratings)
+        a_snap = dict(attack._ratings)
+        d_snap = dict(defense._ratings)
+        init_o, init_a, init_d = overall.initial, attack.initial, defense.initial
+        for k in range(i, j):
+            h, a = homes[k], aways[k]
+            home_elo[k] = o_snap.get(h, init_o); away_elo[k] = o_snap.get(a, init_o)
+            home_att[k] = a_snap.get(h, init_a); away_att[k] = a_snap.get(a, init_a)
+            home_def[k] = d_snap.get(h, init_d); away_def[k] = d_snap.get(a, init_d)
+        for k in range(i, j):
+            gh, ga = (ghs[k], gas[k]) if not is_nan else (np.nan, np.nan)
+            if gh is not None and ga is not None and gh == gh and ga == ga:  # 非 None 非 NaN
+                h, a = homes[k], aways[k]
+                ha = 0.0 if is_national else overall.home_advantage
+                overall.update(h, a, int(gh), int(ga), home_adv=ha, is_national=is_national)
+                attack.update(h, a, int(gh), int(ga), home_adv=ha, is_national=is_national, mode="attack")
+                defense.update(h, a, int(gh), int(ga), home_adv=ha, is_national=is_national, mode="defense")
+        i = j
     df["home_elo"] = home_elo
     df["away_elo"] = away_elo
     df["home_attack_elo"] = home_att

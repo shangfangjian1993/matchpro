@@ -3,18 +3,19 @@
 > 版本:v5.0 | 数据:27,825 场真实历史 | API:FastAPI 统一 /api
 
 数据驱动 + 多层融合的足球概率预测引擎(五大联赛 + 欧冠 + 世界杯 + 欧洲杯)。
-科研级可复现:每次预测自动落 Snapshot(最终输出 + 输入 + 全版本哈希),可 100% 重放。
+科研级可复现:**目标** —— 每次预测自动落 Snapshot(最终输出 + 输入 + 全版本哈希),
+快照特征与预测输入一致性已由黄金测试锁定;完整 100% 重放闭环待回放测试全量通过后恢复宣称。
 
 ## 定位
 
 - 从"比分预测"升级为"概率预测引擎":胜平负 + Top5 比分 + Over/Under + BTTS + xG
 - 严格防泄漏(时间重放/赛前特征),数据真实(无源不编造,缺失 NaN)
-- 所有改动用 2,000 场防泄漏回测验证(有提升才上线)
+- **目标**:所有改动用 2,000 场防泄漏回测验证后上线(当前为单模型选择门禁,见开发规范 4)
 
 ## 架构(两层 Engine)
 
 ```
-数据(sources→raw→canonical)→ Feature Factory(6 家族)
+数据(sources→raw→canonical)→ Feature Factory(4 真实族 + 2 保留)
   → Goal Engine(HGBR+DC+NB+ELO)→ 比分矩阵(1X2/O-U/BTTS/xG)
   → Outcome Engine(GBM 分类器)→ 1X2 融合
   → Calibration(β/Platt/Isotonic 择优)→ Snapshot → API
@@ -39,7 +40,7 @@ runtime/          # active_models.json(动态指针)
 pipelines/        # 五件套(ingest/feature/train/predict/replay)
 configs/          # leagues.yaml(联赛元信息)/ models.yaml(模型参数+特征开关)/ system.yaml
 migrations/       # Alembic(0001→0012)
-tests/            # 最小测试集(11 测试)
+tests/            # 最小测试集(含时间泄漏/确定性/快照一致性黄金测试)
 ```
 
 ## 安装
@@ -54,7 +55,7 @@ pip install -r requirements.txt          # 生产依赖(17 项)
 
 ```bash
 # 迁移建表
-DATABASE_URL=sqlite:///app/data/football.db alembic -c alembic.ini upgrade head
+DATABASE_URL=sqlite:///<项目根>/data/football.db alembic -c alembic.ini upgrade head
 # 一键初始化(爬历史+xG+伤停 → 训练 → 验证)
 python -m app.services.data.init_production
 # 种子中文映射 + 球队实体回填
@@ -66,9 +67,9 @@ python -m app.services.data.seed_team_names && python -m app.services.data.backf
 ```bash
 # 全联赛训练(超参 lr=0.03/depth=6,Experiment 自动记录)
 python -m app.services.training.train_all_leagues
-# Ensemble 权重滚动学习(5 成员,最近 500 场窗口)
+# Ensemble 权重学习(时间分段 OOF:段前训练 → 段内预测,杜绝用最终模型回看历史)
 python -m app.services.training.learn_ensemble_weights
-# 自动模型选择(active_models.json,只选文件存在的最优版本)
+# 自动模型选择(多指标门禁:poisson/logloss/brier/rps 综合评分,写入 runtime/active_models.json)
 python -m app.services.model.auto_select_model
 # GBM 分类成员(Outcome Engine)
 python -m app.services.training.gbm_member
@@ -110,18 +111,19 @@ uvicorn app.api.app:app --host 0.0.0.0 --port 8000 --workers 2
 
 ## 模型版本管理
 
-- 版本文件:`app/models/<league>_v<version>.pkl`(递增,无 latest 复制)
-- active 指针:`app/models/active_models.json`(自动选择写入,prune 保护)
+- 版本文件:`app/models/artifacts/<league>/<version>.pkl`(+ .pkl.sha256 / .pkl.json 元数据;递增,无 latest 复制)
+- active 指针:`runtime/active_models.json`(自动选择写入,prune 保护)+ `runtime/active_meta.json`(评分审计)
 - 特征版本:feature_store(公式哈希,规格驱动)
 
 ## 开发规范
 
 1. 严格防泄漏:特征只用赛前信息;reference_date 用训练集内最大日期
 2. 数据真实:无源不编造
-3. 回测验证:所有改动 2,000 场防泄漏 A/B
-4. 单一实现:概率基元在 distributions.py;特征在 features/(滚动族 factory 调度)
-5. 分级异常:可降级(GBM/校准)warning + prediction_status=degraded;核心失败 raise
-6. 测试:改动后 `python -m pytest`(11 测试)
+3. **目标**:2,000 场防泄漏 A/B 全量回测门禁(当前以多指标自动选择门禁兜底)
+4. 模型上线门禁:多指标综合评分(poisson 0.40 + logloss 0.25 + brier 0.20 + rps 0.15),任一指标缺失/0 占位即拒绝
+5. 单一实现:概率基元在 distributions.py;特征在 features/(滚动族 factory 调度)
+6. 分级异常:可降级(GBM/校准)warning + prediction_status=degraded;核心失败 raise(含 Snapshot 原子语义)
+7. 测试:改动后 `python -m pytest`(测试数以前端/CI 实际执行为准,不硬编码)
 
 ## 历史演进
 

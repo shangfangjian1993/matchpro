@@ -27,9 +27,10 @@ class PredictionCache:
         _ens_mtime = 0.0
         from app.core.paths import PROJECT_ROOT
         _ens_dir = str(PROJECT_ROOT / "artifacts" / "ensemble")
+        _cal_dir = str(PROJECT_ROOT / "artifacts" / "calibration")
         for _fn in (os.path.join(_ens_dir, "ensemble_weights.json"),
                     os.path.join(_ens_dir, "dc_nb_params.json"),
-                    os.path.join(models_dir, f"{league_type.value}_model.cal")):
+                    os.path.join(_cal_dir, f"{league_type.value}.cal")):
             try:
                 _ens_mtime = max(_ens_mtime, os.path.getmtime(_fn))
             except OSError:

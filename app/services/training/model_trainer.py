@@ -10,7 +10,6 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_absolute_error, mean_squared_error
-from sklearn.model_selection import TimeSeriesSplit
 
 from app.core.config import (
     TOURNAMENT_LEAGUE_TYPES,
@@ -49,12 +48,13 @@ def _prepare_eval_split(model, data: pd.DataFrame, target_column: str,
     # 按时间排序后切分:前 (1-ratio) 训练,后 ratio 时间外评估
     if "date" in prepared_data.columns and not prepared_data["date"].isna().all():
         prepared_data = prepared_data.sort_values("date", kind="mergesort").reset_index(drop=True)
-    n = len(prepared_data)
-    split = int(n * (1 - test_split_ratio))
-    X_train = prepared_data.iloc[:split][feature_columns]
-    y_train = prepared_data.iloc[:split][target_column]
-    X_test = prepared_data.iloc[split:][feature_columns]
-    y_test = prepared_data.iloc[split:][target_column]
+    # 审查 P1-7:按日期分组切分(同一比赛日不跨 train/test)
+    from app.models.utils import date_group_split
+    _trn, _tst = date_group_split(prepared_data, ratio=1 - test_split_ratio)
+    X_train = _trn[feature_columns]
+    y_train = _trn[target_column]
+    X_test = _tst[feature_columns]
+    y_test = _tst[target_column]
     if len(X_test) == 0:
         # 数据太少时退回全量(与 train() 行为一致)
         X_test, y_test = X_train, y_train
@@ -199,14 +199,15 @@ class ModelTrainer:
             X = prepared_data[feature_columns]
             y = prepared_data[target_column]
 
-        # 使用时间序列交叉验证
-        tscv = TimeSeriesSplit(n_splits=cv_folds)
+        # 使用时间序列交叉验证(审查 P1-7:按日期组折叠,折边界不切开同一天)
+        from app.models.utils import date_group_folds
+        cv_folds_list = date_group_folds(prepared_data, n_splits=cv_folds)
 
         cv_scores = []
         cv_mse = []
         cv_mae = []
 
-        for fold, (train_idx, test_idx) in enumerate(tscv.split(X)):
+        for fold, (train_idx, test_idx) in enumerate(cv_folds_list):
             X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
             y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
 

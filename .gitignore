@@ -26,6 +26,7 @@ artifacts/models/
 artifacts/ensemble/
 artifacts/calibration/
 runtime/active_models.json
+runtime/active_meta.json
 app/models/.train.lock
 
 # 前端依赖与构建

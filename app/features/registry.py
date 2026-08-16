@@ -71,11 +71,23 @@ def compute_all(df, league_type: str | None = None):
 
 
 def logical_version() -> str:
-    """逻辑哈希:聚合 6 家族版本(评审:特征 A/B 归因用)。"""
+    """逻辑哈希:聚合 6 家族版本(评审:特征 A/B 归因用)。
+
+    当前实现 4 真实族(strength/attack_defense/form/h2h)+ 2 保留族
+    (availability/environment)。审查 P1-18:保留族未来实现时自动纳入
+    哈希 —— 避免"接了新家族但 logical_version 不变"的版本盲区。
+    """
     import hashlib as _hl
 
     from app.features import attack_defense, form, h2h, strength
     parts = [m.version() for m in (strength, attack_defense, form, h2h)]
+    for _reserved in ("availability", "environment"):
+        try:
+            _mod = __import__(f"app.features.{_reserved}", fromlist=["version"])
+            if hasattr(_mod, "version"):
+                parts.append(_mod.version())
+        except ImportError:
+            pass  # 未实现:不参与版本
     return _hl.sha256("|".join(parts).encode()).hexdigest()[:12]
 
 

@@ -135,12 +135,13 @@ class BaseFootballModel(ABC):
         self.model = PoissonLossHGBR(**self.config.parameters)
 
         # 时间序列 holdout:前 80% 训练,后 20% 评估(防止样本内评估虚高)
-        n = len(prepared_data)
-        split = int(n * 0.8)
-        X_train = prepared_data.iloc[:split][feature_columns]
-        y_train = prepared_data.iloc[:split][target_column]
-        X_eval = prepared_data.iloc[split:][feature_columns]
-        y_eval = prepared_data.iloc[split:][target_column]
+        # 审查 P1-7:按日期分组切分 —— 同一比赛日不会同时出现在 train/test
+        from app.models.utils import date_group_split
+        _trn, _eva = date_group_split(prepared_data, ratio=0.8)
+        X_train = _trn[feature_columns]
+        y_train = _trn[target_column]
+        X_eval = _eva[feature_columns]
+        y_eval = _eva[target_column]
 
         if len(X_eval) == 0:
             X_eval, y_eval = X_train, y_train  # 数据太少时退回样本内评估
@@ -155,16 +156,22 @@ class BaseFootballModel(ABC):
 
         # 时间衰减样本权重(评审 P1):指数衰减 + 下限保护 + 均值归一,
         # 配置在 configs/models.yaml training.sample_weight(enabled/half_life_days/min_weight)。
-        sample_weight = self._sample_weights(prepared_data.iloc[:split])
+        sample_weight = self._sample_weights(_trn)
 
-        # 训练模型
+        # 训练模型(前 80% —— 时间安全 holdout)
         self.model.fit(X_train, y_train, sample_weight=sample_weight)
 
         # 记录训练时实际使用的特征列(持久化,预测白名单)
         self.feature_columns_ = list(feature_columns)
 
-        # 评估模型(时间外样本)
+        # 评估模型(时间外样本,80% 训练模型口径)
         evaluation = self.model.evaluate(X_eval, y_eval)
+
+        # 审查 P0-2:评估完成后用 100% 数据重训 —— 保存/上线的即生产模型,
+        # 而非只吃过前 80% 历史的模型。
+        full_weight = self._sample_weights(prepared_data)
+        self.model.fit(prepared_data[feature_columns], prepared_data[target_column],
+                       sample_weight=full_weight)
 
         # 记录训练历史
         self.training_history.append({

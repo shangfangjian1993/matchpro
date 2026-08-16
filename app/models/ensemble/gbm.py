@@ -27,17 +27,31 @@ class GbmClassifier:
         self.is_trained = False
 
     def train(self, X: pd.DataFrame, y: pd.Series) -> dict:
-        """X: 特征矩阵(78 特征), y: 0/1/2(胜/平/负)。"""
+        """X: 特征矩阵(78 特征), y: 0/1/2(胜/平/负)。
+
+        审查 P0-1:先切时间 holdout(前 80% 训练 → 后 20% 评估),
+        再评估 —— 修复"全量 fit 后再切 20% 评估"的数据泄漏。
+        """
         from sklearn.ensemble import HistGradientBoostingClassifier
+        n = len(X)
+        # 审查 P1-7:按日期分组切分(同一比赛日不跨 train/test)
+        if "date" in X.columns:
+            from app.models.utils import date_group_split
+            _df_tmp = X.copy()
+            _trn, _eva = date_group_split(_df_tmp, ratio=0.8)
+            X_train, X_eval = _trn, _eva
+            y_train, y_eval = y.iloc[_trn.index], y.iloc[_eva.index]
+        else:
+            split = int(n * 0.8)
+            X_train, y_train = X.iloc[:split], y.iloc[:split]
+            X_eval, y_eval = X.iloc[split:], y.iloc[split:]
         self.model = HistGradientBoostingClassifier(**self.params)
-        self.model.fit(X, y)
+        self.model.fit(X_train, y_train)          # 前 80% 训练(时间安全)
         self.feature_columns_ = list(X.columns)
         self.is_trained = True
-        # 时间 holdout 评估(与主模型同口径)
-        n = len(X)
-        split = int(n * 0.8)
-        X_eval, y_eval = X.iloc[split:], y.iloc[split:]
         p = self.model.predict_proba(X_eval)
+        # P0-2:评估完成后用 100% 数据重训 —— 保存的即生产模型
+        self.model.fit(X, y)
         from app.replay.metrics import accuracy, brier_score, log_loss
         from app.replay.metrics import rps as _rps
         return {

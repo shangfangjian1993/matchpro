@@ -1,8 +1,8 @@
-"""从快照库拟合概率校准器,保存 models/<league>_model.cal。
+"""从快照库拟合概率校准器,保存 artifacts/calibration/<league>.cal(审查:与模型/ensemble 同一版本管理体系)。
 
 - 样本:prediction_snapshots 中已回填(有 actual)的快照
 - 方法:每类样本 ≥50 → Beta 校准;否则跳过(样本不足)
-- 输出:models/<league>_model.cal(与模型版本同目录)
+- 输出:artifacts/calibration/<league>.cal
 
 用法:
     python scripts/fit_calibration.py [--league premier_league]
@@ -21,7 +21,7 @@ MIN_SAMPLES = 150  # 每类最少样本(总量,三分类共需)
 
 
 def main() -> int:
-    ap = make_parser("概率校准器拟合:快照库 → models/<league>_model.cal")
+    ap = make_parser("概率校准器拟合:快照库 → artifacts/calibration/<league>.cal")
     ap.add_argument("--league", default=None, help="联赛枚举名;默认全部")
     setup_logging("INFO")
     args = ap.parse_args()
@@ -36,8 +36,11 @@ def main() -> int:
             leagues = [l for l in leagues if l.league_type == args.league]
         fitted = 0
         for lg in leagues:
+            # 审查 P1-10:严格按 kickoff 升序 —— 否则 fit_best 的前 80%/后 20%
+            # 不保证是时间切分(数据库返回顺序可能把"未来"放进训练、"过去"放进验证)
             snaps = PredictionSnapshot.query.filter_by(league_id=lg.id).filter(
-                PredictionSnapshot.actual_home_goals.isnot(None)).all()
+                PredictionSnapshot.actual_home_goals.isnot(None)).order_by(
+                PredictionSnapshot.kickoff.asc()).all()
             if len(snaps) < MIN_SAMPLES:
                 print(f"{lg.name}: 样本 {len(snaps)} < {MIN_SAMPLES},跳过")
                 continue
@@ -50,7 +53,11 @@ def main() -> int:
                 labels.append(label)
             # 联赛择优(评审 P1):β/Platt/Isotonic 三方法,评估段选 ECE 最低
             cal = Calibrator.fit_best(np.array(probs), np.array(labels))
-            path = f"models/{lg.league_type}_model.cal"
+            # 审查:统一 calibration artifact 目录(artifacts/calibration/)
+            from app.core.paths import ARTIFACTS_DIR
+            _cal_dir = os.path.join(ARTIFACTS_DIR, "calibration")
+            os.makedirs(_cal_dir, exist_ok=True)
+            path = os.path.join(_cal_dir, f"{lg.league_type}.cal")
             cal.save(path)
             fitted += 1
             print(f"✅ {lg.name}: {len(snaps)} 样本 → {path} "

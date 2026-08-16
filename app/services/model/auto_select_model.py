@@ -48,24 +48,41 @@ def main():
                 m = json.loads(getattr(e, "metrics_json", None) or "{}")
             except Exception:
                 continue
-            pl = m.get("poisson_loss")
-            if pl is None:
+            # 审查 P1-12:多指标门禁 —— 单一 poisson_loss 最优不代表 1X2/校准最优。
+            # 综合评分 = 0.40·poisson + 0.25·logloss + 0.20·brier + 0.15·rps
+            # (四项均为越小越好;任一缺失或为 0 占位即拒绝候选 —— 旧版本实验
+            #  概率指标未计算时存 0.0,0 值 logloss/brier/rps 会使综合分虚低)
+            required = ("poisson_loss", "log_loss", "brier", "rps")
+            if any(m.get(k) is None or m.get(k) <= 0 for k in required):
                 continue
+            score = (0.40 * m["poisson_loss"] + 0.25 * m["log_loss"]
+                     + 0.20 * m["brier"] + 0.15 * m["rps"])
             cur = best.get(lt)
-            if cur is None or pl < cur["poisson_loss"]:
-                best[lt] = {"version": mv, "poisson_loss": pl,
+            if cur is None or score < cur["score"]:
+                best[lt] = {"version": mv, "score": score,
+                            "poisson_loss": m["poisson_loss"],
+                            "log_loss": m["log_loss"], "brier": m["brier"],
+                            "rps": m["rps"],
                             "feature_version": getattr(e, "feature_version", None)}
         if not best:
             print("无历史实验,跳过")
             return
         active = {lt: v["version"] for lt, v in best.items()}
         out = os.path.join(str(__import__("app.core.paths", fromlist=["PROJECT_ROOT"]).PROJECT_ROOT), "runtime", "active_models.json")
+        # 审查 P1-12:审计元数据(选中的版本 + 各指标 + 综合分)
+        meta_out = os.path.join(os.path.dirname(out), "active_meta.json")
         os.makedirs(models_dir, exist_ok=True)
         with open(out, "w", encoding="utf-8") as _of:
             json.dump(active, _of, ensure_ascii=False, indent=2)
+        with open(meta_out, "w", encoding="utf-8") as _mf:
+            json.dump({lt: {k: (round(v, 5) if isinstance(v, float) else v)
+                            for k, v in info.items()}
+                       for lt, info in best.items()}, _mf, ensure_ascii=False, indent=2)
         print(f"✅ active_models.json 已写入 {out}")
         for lt, v in sorted(best.items()):
-            print(f"   {lt}: v{v['version']} (poisson {v['poisson_loss']:.4f})")
+            print(f"   {lt}: v{v['version']} (score {v['score']:.4f} | "
+                  f"poisson {v['poisson_loss']:.4f} | ll {v['log_loss']:.4f} | "
+                  f"brier {v['brier']:.4f} | rps {v['rps']:.4f})")
 
 
 if __name__ == "__main__":

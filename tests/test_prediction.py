@@ -9,8 +9,9 @@ def test_predict_match_full_output(db_ctx):
     for k in ("home_win_probability", "draw_probability", "away_win_probability",
               "top_scores", "over_2_5", "under_2_5", "btts", "expected_xg"):
         assert k in r, f"缺少 {k}"
+    # 输出为 round(p, 4) 的独立四舍五入,和差最大 ~1.5e-4;用 1e-3 容差
     assert abs(r["home_win_probability"] + r["draw_probability"]
-               + r["away_win_probability"] - 1.0) < 1e-6
+               + r["away_win_probability"] - 1.0) < 1e-3
     assert len(r["top_scores"]) == 5
     assert abs(r["over_2_5"] + r["under_2_5"] - 1.0) < 1e-6
     assert len(r["expected_xg"]) == 2

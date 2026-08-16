@@ -38,5 +38,12 @@ def compute_members(lam_h: float, lam_a: float, lam_eh: float, lam_ea: float,
     score_out = score_outputs(fused_matrix)
     wh = weights.get("hgbr", 1.0) + weights.get("dc", 0.0) + weights.get("nb", 0.0)
     we = weights.get("elo", 0.0)
-    fused_lams = (wh * lam_h + we * lam_eh, wh * lam_a + we * lam_ea)
+    wg = wh + we
+    # 审查 P1-8/9:Goal 权重归一化 —— GBM 只进 Outcome(1X2),不得缩放 λ;
+    # 归一化后 fused λ 与 score matrix(内部 out/sum)严格一致。
+    if wg > 0:
+        fused_lams = (wh / wg * lam_h + we / wg * lam_eh,
+                      wh / wg * lam_a + we / wg * lam_ea)
+    else:
+        fused_lams = (lam_h, lam_a)
     return {"members": members, "score_out": score_out, "fused_lams": fused_lams}

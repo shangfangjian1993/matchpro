@@ -17,32 +17,47 @@ def set_weights_path(path: str | None):
 
 
 def learn_weights(samples: list[dict], tau: float = 0.0, phi: float = 1e9) -> dict:
-    """滚动学习:SLSQP 优化 w≥0、Σw=1 最小化 log-loss(§4;成员含 gbm)。"""
-    names = ["hgbr", "dc", "nb", "elo", "gbm"]
+    """滚动学习:SLSQP 优化 w≥0、Σw=1 最小化 log-loss(§4)。
+
+    审查 P1-16:成员动态化 —— 样本中实际出现的成员才参与优化;
+    GBM 不可用(加载失败/预测失败)→ 完全从优化中移除,而非以 [0,0,0] 假装存在。
+    """
+    names_all = ["hgbr", "dc", "nb", "elo", "gbm"]
+    present = [n for n in names_all if any(n in s for s in samples)]
     n = max(1, len(samples))
 
     def _nll(w):
         ll = 0.0
         for s in samples:
             p = np.zeros(3)
-            for i, name in enumerate(names):
-                p += w[i] * np.asarray(s.get(name, s["hgbr"]))
+            for i, name in enumerate(present):
+                p += w[i] * np.asarray(s[name])
             p = np.clip(p, 1e-12, None)
             p = p / p.sum()
             ll -= math.log(p[s["actual"]])
         return ll / n
 
+    # 只有 1 个成员时无需优化
+    if len(present) < 2:
+        w = {name: (1.0 if name == present[0] else 0.0) for name in names_all}
+        w["log_loss"] = float(_nll([1.0]))
+        w["n"] = n
+        return w
+
     from scipy.optimize import minimize
-    w0 = np.array([1.0, 0.0, 0.0, 0.0, 0.0])
+    w0 = np.array([1.0 if name == "hgbr" else 0.0 for name in present])
     res = minimize(_nll, w0, method="SLSQP",
-                   bounds=[(0.0, 1.0)] * 5,
+                   bounds=[(0.0, 1.0)] * len(present),
                    constraints={"type": "eq", "fun": lambda w: w.sum() - 1.0},
                    options={"maxiter": 200, "ftol": 1e-9})
     w = np.clip(res.x, 0.0, 1.0)
     w = w / w.sum()
-    return {"hgbr": float(w[0]), "dc": float(w[1]), "nb": float(w[2]),
-            "elo": float(w[3]), "gbm": float(w[4]),
-            "log_loss": float(_nll(w)), "n": n}
+    out = {name: 0.0 for name in names_all}
+    for i, name in enumerate(present):
+        out[name] = float(w[i])
+    out["log_loss"] = float(_nll(w))
+    out["n"] = n
+    return out
 
 
 def load_weights(league_key: str, default: dict | None = None) -> dict:

@@ -54,7 +54,7 @@ matchpro/
 
 - 版本文件:`artifacts/models/<league>/<version>.pkl`(递增,无 latest 复制)
 - active 指针:`runtime/active_models.json`(自动选择,prune 保护 active)
-- 校准器:`app/models/<league>_model.cal`(三方法择优)
+- 校准器:`artifacts/calibration/<league>.cal`(三方法择优;版本 = artifact sha256)
 - Ensemble 权重:`artifacts/ensemble/`(学习产物)
 - 调参实验:`artifacts/experiments/`(hyperopt 等)
 

@@ -66,10 +66,12 @@ def main():
             "best_params": best["params"],
             "metrics": {k: best[k] for k in ("log_loss", "brier", "rps")},
         }
-        with open(os.path.join(_ROOT, "artifacts", "experiments", "hyperopt_best.json"), "w",
+        _exp_dir = os.path.join(_ROOT, "artifacts", "experiments", "hyperopt")
+        os.makedirs(_exp_dir, exist_ok=True)
+        with open(os.path.join(_exp_dir, "best.json"), "w",
                   encoding="utf-8") as f:
             json.dump(out, f, ensure_ascii=False, indent=2)
-        print("\n✅ 已保存 app/models/hyperopt_best.json")
+        print("\n✅ 已保存 artifacts/experiments/hyperopt/best.json")
 
 
 if __name__ == "__main__":

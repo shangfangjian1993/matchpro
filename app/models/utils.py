@@ -119,3 +119,51 @@ def prematch_elo(hist_df, home_team: str, away_team: str, dim: str = "attack") -
     if home_elo is None or away_elo is None:
         return None, None, None
     return float(home_elo), float(away_elo), float(home_elo - away_elo)
+
+
+def date_group_split(df: pd.DataFrame, ratio: float = 0.8, date_col: str = "date"):
+    """按日期分组切分:同一比赛日不会同时出现在 train/test(审查 P1-7)。
+
+    时间序列数据若按行数 80/20 切分,同一天的比赛可能被切开(前 8 场
+    进训练、后 2 场进评估)——若特征/ELO 状态跨日处理不严谨即边界泄漏。
+    改为按日期分组:前 ratio 的日期进训练,其余日期进评估。
+    """
+    if date_col not in df.columns:
+        n = len(df)
+        s = int(n * ratio)
+        return df.iloc[:s].copy(), df.iloc[s:].copy()
+    d = pd.to_datetime(df[date_col], errors="coerce")
+    uniq = np.sort(d.dropna().unique())
+    if len(uniq) < 2:
+        n = len(df)
+        s = int(n * ratio)
+        return df.iloc[:s].copy(), df.iloc[s:].copy()
+    cut = uniq[int(len(uniq) * ratio) - 1]
+    return df[d <= cut].copy(), df[d > cut].copy()
+
+
+def date_group_folds(df: pd.DataFrame, n_splits: int = 5, date_col: str = "date"):
+    """按日期组的时序折叠(审查 P1-7):折边界不切开同一天。
+
+    返回 [(train_idx, test_idx), ...]:第 k 折 train = 前 k 个日期块,
+    test = 第 k+1 个日期块(等价 TimeSeriesSplit,但按日期分组)。
+    日期不足时回退 sklearn TimeSeriesSplit。
+    """
+    from sklearn.model_selection import TimeSeriesSplit
+    if date_col not in df.columns:
+        return list(TimeSeriesSplit(n_splits=n_splits).split(df))
+    d = pd.to_datetime(df[date_col], errors="coerce")
+    uniq = np.sort(d.dropna().unique())
+    if len(uniq) < n_splits + 1:
+        return list(TimeSeriesSplit(n_splits=n_splits).split(df))
+    n_d = len(uniq)
+    edges = list(dict.fromkeys(np.linspace(0, n_d, n_splits + 1).astype(int).tolist()))
+    folds = []
+    for k in range(1, len(edges)):
+        train_dates = uniq[: edges[k - 1]]
+        test_dates = uniq[edges[k - 1]:edges[k]]
+        trn = df.index[d.isin(train_dates)].to_numpy()
+        tst = df.index[d.isin(test_dates)].to_numpy()
+        if len(trn) and len(tst):
+            folds.append((trn, tst))
+    return folds

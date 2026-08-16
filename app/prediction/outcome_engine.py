@@ -34,7 +34,8 @@ def gbm_probs(gbm, pred_df, model) -> tuple | None:
     try:
         gfeat = model.prepare_features(pred_df)
         gcols = [col for col in gbm.feature_columns_ if col in gfeat.columns]
-        gp = gbm.predict_proba(gfeat[gcols].iloc[[-2, -1]])
+        # 审查 P1:GBM 只需主队预测行(-2 行);客队行(-1)不使用
+        gp = gbm.predict_proba(gfeat[gcols].iloc[[-2]])
         return (float(gp[0][0]), float(gp[0][1]), float(gp[0][2]))
     except Exception:
         return None

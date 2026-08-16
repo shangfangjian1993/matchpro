@@ -120,6 +120,8 @@ def train_model(league_type: LeagueType, target_column: str = "goals",
                     getattr(model, "config", None).parameters if getattr(model, "config", None) else {},
                     default=str),
                 metrics_json=_json.dumps({
+                    # 审查 P0-3:各指标口径必须可区分,不得把不同 holdout /
+                    # 不同样本量的指标混成一个"模型分数"
                     "poisson_loss": float(_ev.get("poisson_loss", 0.0) or 0.0),
                     "accuracy": float(_acc.get("exact_accuracy", _ev.get("exact_accuracy", 0.0)) or 0.0),
                     "log_loss": float(_prob_metrics.get("log_loss", 0.0) or 0.0),
@@ -127,6 +129,18 @@ def train_model(league_type: LeagueType, target_column: str = "goals",
                     "rps": float(_prob_metrics.get("rps", 0.0) or 0.0),
                     "feature_count": int(results.get("feature_count", 0) or 0),
                     "data_rows": len(df),
+                    # ---- 口径标注(P0-3)----
+                    "metric_sources": "poisson_loss=regression_holdout;log_loss/brier/rps=probability_holdout;cv=time_cv",
+                    "split": "date-grouped-80-20",
+                    "prob_holdout_n": int(_prob_metrics.get("n", 0) or 0),
+                    "time_cv": (
+                        {"mean": float(results["cross_validation"]["cv_mean"]),
+                         "std": float(results["cross_validation"]["cv_std"]),
+                         "folds": int(results["cross_validation"]["cv_folds"])}
+                        if isinstance(results.get("cross_validation"), dict)
+                        and results["cross_validation"].get("cv_mean") is not None
+                        else None
+                    ),
                 }, default=str),
                 data_hash=_hl.sha256(str(len(df)).encode()).hexdigest()[:16],
             ))
@@ -171,10 +185,10 @@ def _holdout_prob_metrics(model, df, target_column: str = "goals") -> dict:
     from app.replay.metrics import rps as _rps
     if len(df) < 200:
         return {}
-    n = len(df)
-    split = int(n * 0.8)
-    test = df.iloc[split:].reset_index(drop=True)
-    hist = df.iloc[:split]
+    # 审查 P1-7:按日期分组切分(同一比赛日不跨 train/test)
+    from app.models.utils import date_group_split
+    hist, test = date_group_split(df, ratio=0.8)
+    test = test.reset_index(drop=True)
     # 采样上限 60(性能;指标为参考性,与回测/复盘互补)
     if len(test) > 60:
         test = test.iloc[:: max(1, len(test) // 60)]
@@ -208,4 +222,5 @@ def _holdout_prob_metrics(model, df, target_column: str = "goals") -> dict:
         "log_loss": round(sum(log_loss(p, a) for p, a in zip(pvecs, acts)) / len(pvecs), 5),
         "brier": round(sum(brier_score(p, a) for p, a in zip(pvecs, acts)) / len(pvecs), 5),
         "rps": round(sum(_rps(p, a) for p, a in zip(pvecs, acts)) / len(pvecs), 5),
+        "n": len(pvecs),
     }
