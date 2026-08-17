@@ -12,7 +12,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import re
 
 import pandas as pd
@@ -168,7 +167,6 @@ def enrich_matches(league_type, rows, season_start: str = "2024",
 def _g(v):
     """值清洗:NaN/str 空白 → None;float 化。"""
     try:
-        import pandas as pd
         if v is None or (isinstance(v, float) and v != v) or (isinstance(v, str) and not v.strip()):
             return None
         return float(v)

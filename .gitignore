@@ -38,3 +38,7 @@ frontend/dist/
 Thumbs.db
 *.7z
 *.zip
+
+# Redis 持久化文件(本地 redis-server 生成)
+dump.rdb
+*.rdb
