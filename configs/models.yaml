@@ -9,6 +9,12 @@ prediction:
     alpha: 0.6
     min_history: 50
 ensemble:
+  context_weight:
+    # 审查三十七 P2:Dynamic Ensemble Context Weight(默认关,待 A/B 验证)
+    enabled: false
+    max_delta: 0.10
+    disagreement_threshold: 0.08
+    disagreement_bump: 0.05
   default_weights:
     hgbr: 1.0
     dc: 0.0

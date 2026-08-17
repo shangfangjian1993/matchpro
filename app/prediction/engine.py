@@ -70,6 +70,14 @@ class PredictionEngine:
                 pass
             _lam_h = home_lambda * _h_mult
             _lam_a = away_lambda * _a_mult
+            # 审查三十七 P2:上下文动态权重(强弱差距/分歧 → 微调,默认关)
+            _ctx_info = None
+            try:
+                from app.prediction.context_weights import adjust as _ctx_adj
+                _w, _ctx_info = _ctx_adj(_w, _att_diff,
+                                         ctx.get("disagreement", 0.0))
+            except Exception:
+                _ctx_info = None
             _lam_eh = elo_goal_lambda(_att_diff, True) * _h_mult
             _lam_ea = elo_goal_lambda(_att_diff, False) * _a_mult
             _lam_bh = ctx.get("bayes_lam_h")
@@ -120,6 +128,27 @@ class PredictionEngine:
                                    _feat, getattr(model, "feature_columns_", []))
         _agreement, _data_quality = _unc["agreement"], _unc["data_quality"]
 
+        # 审查三十一:模型解释页数据 —— 成员一致性(1X2)与特征影响
+        _members_1x2 = {}
+        try:
+            for _name, _p in (_members or {}).items():
+                _members_1x2[_name] = [round(float(x), 4) for x in _p]
+            if _gbm_probs is not None:
+                _members_1x2["gbm"] = [round(float(x), 4) for x in _gbm_probs]
+        except Exception:
+            _members_1x2 = {}
+        _feature_impact = []
+        try:
+            _fi = getattr(getattr(model, "model", None), "feature_importance_", None)
+            if _fi is not None:
+                _fcols = getattr(model, "feature_columns_", [])
+                _pairs = sorted(zip(_fcols, [float(x) for x in _fi]),
+                                key=lambda t: -abs(t[1]))[:8]
+                _feature_impact = [{"feature": str(f), "importance": round(float(v), 4)}
+                                   for f, v in _pairs]
+        except Exception:
+            _feature_impact = []
+
         result = {
             "league_type": league_type.value,
             "home_team": home_team,
@@ -136,11 +165,14 @@ class PredictionEngine:
             "prediction_entropy": _unc["entropy"],
             "model_disagreement": _unc["disagreement"],
             "data_quality_score": _unc["data_quality"],
+            "members_1x2": _members_1x2,
+            "feature_impact": _feature_impact,
             "top_scores": _score_out["top_scores"],
             "over_2_5": _score_out["over_2_5"],
             "under_2_5": _score_out["under_2_5"],
             "btts": _score_out["btts"],
             "expected_xg": _score_out["expected_xg"],
+            "context_weights": _ctx_info,
             "match_id": ctx.get("match_id"),
             "match_date": match_dt.isoformat() if hasattr(match_dt, "isoformat") else str(match_dt),
             "prediction_status": "degraded" if _degraded else "ok",

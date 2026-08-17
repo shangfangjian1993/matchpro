@@ -54,9 +54,15 @@ REGIMES = ("NORMAL", "HIGH_DRAW", "LOW_SCORING", "HIGH_SCORING",
 
 def detect(league_id, cutoff_dt, window: int = 100,
            baseline_window: int = 1000, min_samples: int = 50) -> dict:
-    """检测截止该场的 regime 漂移(draw/goal/home-adv)。
+    """检测截止该场的 regime 漂移(审查九 P1-12 + 深化)。
 
-    返回 {regime, shift_score, draw_rate, goal_rate, home_rate, baseline_*}。
+    维度(审查二十七):
+      - Draw Rate Shift / Goal Rate Shift / Home Advantage Shift(基础)
+      - Team Strength Dispersion(球队强度分散度压缩 → STRENGTH_COMPRESSED)
+      - Distribution Shift(低分率 0-1 球占比,无 xG 数据下的分布代理)
+      - Calibration Drift(有 production 快照时,近期 ECE vs 历史)
+
+    返回 {regime, shift_score, 各维度值, dispersion_*, calib_*}。
     shift_score ∈ [0, 1]:0=无漂移,1=剧烈漂移。
     """
     from app.api.db import Match
@@ -71,26 +77,51 @@ def detect(league_id, cutoff_dt, window: int = 100,
     def _rates(ms):
         n = len(ms)
         if n == 0:
-            return 0.0, 0.0, 0.0
+            return 0.0, 0.0, 0.0, 0.0
         h = sum(1 for m in ms if (m.home_goals or 0) > (m.away_goals or 0))
         d = sum(1 for m in ms if (m.home_goals or 0) == (m.away_goals or 0))
         goals = sum((m.home_goals or 0) + (m.away_goals or 0) for m in ms) / n
-        return h / n, d / n, goals
+        low = sum(1 for m in ms if (m.home_goals or 0) + (m.away_goals or 0) <= 1) / n
+        return h / n, d / n, goals, low
+
+    def _dispersion(ms):
+        """球队强度分散度:各队近 5 场场均进球 → 跨队标准差(压缩=强弱分化减弱)。"""
+        import collections
+        per_team = collections.defaultdict(list)
+        for m in ms:
+            gh, ga = (m.home_goals or 0), (m.away_goals or 0)
+            per_team[m.home_team].append(gh)
+            per_team[m.away_team].append(ga)
+        means = []
+        for v in per_team.values():
+            if len(v) >= 3:
+                means.append(sum(v) / len(v))
+        if len(means) < 6:
+            return None
+        return float(np.std(means))
 
     recent = rows[:window]
     baseline = rows[window:window + baseline_window]
     if len(baseline) < min_samples:
         baseline = rows[min(window, len(rows) - min_samples):]
-    rh, rd, rg = _rates(recent)
-    bh, bd, bg = _rates(baseline)
-    # 漂移评分:各维度偏离的归一化和(5pp 平局率 = 0.5,0.5 球 = 0.5)
+    rh, rd, rg, rl = _rates(recent)
+    bh, bd, bg, bl = _rates(baseline)
+    disp_r = _dispersion(recent)
+    disp_b = _dispersion(baseline)
+    disp_ratio = (disp_r / disp_b) if (disp_r is not None and disp_b and disp_b > 0) else None
+    # 漂移评分:各维度偏离的归一化和
     shift = max(
         abs(rd - bd) / 0.10,      # 平局率 ±10pp 满量程
         abs(rg - bg) / 0.60,      # 场均进球 ±0.6 满量程
         abs(rh - bh) / 0.12,      # 主胜率 ±12pp 满量程
+        abs(rl - bl) / 0.12,      # 低分率 ±12pp 满量程
+        (max(0.0, 1.0 - (disp_ratio or 1.0))) / 0.25,  # 强度压缩 ±25% 满量程
     )
     shift = float(min(1.0, shift))
-    if shift < 0.15:
+    # Calibration Drift(尽力而为:production 快照的近期 ECE)
+    calib = _calibration_drift(league_id, cutoff_dt)
+
+    if shift < 0.15 and not (disp_ratio is not None and disp_ratio < 0.8):
         regime = "NORMAL"
     elif rd - bd > 0.03:
         regime = "HIGH_DRAW"
@@ -98,20 +129,69 @@ def detect(league_id, cutoff_dt, window: int = 100,
         regime = "LOW_SCORING"
     elif rg - bg > 0.25:
         regime = "HIGH_SCORING"
+    elif disp_ratio is not None and disp_ratio < 0.8:
+        regime = "STRENGTH_COMPRESSED"
     elif abs(rh - bh) > 0.05:
         regime = "HOME_ADV_SHIFT"
     else:
         regime = "NORMAL"
-    return {"regime": regime, "shift_score": shift,
-            "draw_rate": round(rd, 4), "goal_rate": round(rg, 3),
-            "home_rate": round(rh, 4),
-            "base_draw": round(bd, 4), "base_goal": round(bg, 3),
-            "base_home": round(bh, 4), "sample": len(recent)}
+    out = {"regime": regime, "shift_score": shift,
+           "draw_rate": round(rd, 4), "goal_rate": round(rg, 3),
+           "home_rate": round(rh, 4), "low_score_rate": round(rl, 4),
+           "base_draw": round(bd, 4), "base_goal": round(bg, 3),
+           "base_home": round(bh, 4), "base_low_score": round(bl, 4),
+           "dispersion_recent": (round(disp_r, 4) if disp_r is not None else None),
+           "dispersion_base": (round(disp_b, 4) if disp_b is not None else None),
+           "dispersion_ratio": (round(disp_ratio, 4) if disp_ratio is not None else None),
+           "sample": len(recent)}
+    if calib is not None:
+        out["calibration_drift"] = calib
+    return out
+
+
+def _calibration_drift(league_id, cutoff_dt, window: int = 100) -> dict | None:
+    """校准漂移(尽力而为):production 快照的近期 ECE vs 更早 ECE。
+
+    快照少(production 模式)时返回 None —— 数据不足不误报。
+    """
+    try:
+        from app.api.db import PredictionSnapshot
+        snaps = (PredictionSnapshot.query.filter(
+                    PredictionSnapshot.league_id == league_id,
+                    PredictionSnapshot.kickoff < cutoff_dt)
+                 .order_by(PredictionSnapshot.kickoff.desc()).limit(window * 2).all())
+        if len(snaps) < 60:
+            return None
+        import json as _json
+        from app.replay.metrics import ece as _ece
+
+        def _ece_of(rows):
+            pvecs, acts = [], []
+            for s in rows:
+                p = _json.loads(s.probabilities_json or "{}")
+                pvecs.append([p.get("home_win", 0), p.get("draw", 0),
+                              p.get("away_win", 0)])
+                gh, ga = s.actual_home_goals or 0, s.actual_away_goals or 0
+                acts.append(0 if gh > ga else (1 if gh == ga else 2))
+            return _ece(pvecs, acts) if pvecs else None
+
+        recent_ece = _ece_of(snaps[:min(window, len(snaps))])
+        base_ece = _ece_of(snaps[min(window, len(snaps)):])
+        if recent_ece is None or base_ece is None:
+            return None
+        return {"recent_ece": round(float(recent_ece), 4),
+                "base_ece": round(float(base_ece), 4),
+                "drift": round(float(recent_ece - base_ece), 4),
+                "n": len(snaps)}
+    except Exception:
+        return None
 
 
 def dynamic_alpha(shift_score: float, alpha_stable: float = 0.85,
-                  alpha_shift: float = 0.55) -> float:
-    """审查十三:α 动态 —— 稳定赛季 ≈0.85,剧烈 regime shift ≈0.55。"""
-    return float(np.clip(
-        alpha_stable - (alpha_stable - alpha_shift) * shift_score,
-        alpha_shift, alpha_stable))
+                  alpha_shift: float = 0.55, regime: str = "NORMAL") -> float:
+    """审查十三 + 深化:稳定赛季 ≈0.85,剧烈 shift ≈0.55;
+    STRENGTH_COMPRESSED(强弱分化减弱 → 爆冷多)额外向近期频率倾斜。"""
+    alpha = alpha_stable - (alpha_stable - alpha_shift) * shift_score
+    if regime == "STRENGTH_COMPRESSED":
+        alpha = min(alpha, alpha_shift + 0.05)
+    return float(np.clip(alpha, alpha_shift, alpha_stable))

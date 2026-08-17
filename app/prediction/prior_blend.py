@@ -89,7 +89,8 @@ def blend_matrix(league_id, cutoff_dt, probs, matrix):
         from app.prediction.regime import detect as _detect
         from app.prediction.regime import dynamic_alpha as _dyn_alpha
         _reg = _detect(league_id, cutoff_dt, window=window)
-        alpha = _dyn_alpha(_reg.get("shift_score", 0.0))
+        alpha = _dyn_alpha(_reg.get("shift_score", 0.0),
+                           regime=_reg.get("regime", "NORMAL"))
     except Exception:
         _reg, alpha = {}, float(cfg.get("alpha", 0.6))
     p = np.asarray(probs, dtype=float)
