@@ -85,20 +85,28 @@ def detect(league_id, cutoff_dt, window: int = 100,
         return h / n, d / n, goals, low
 
     def _dispersion(ms):
-        """球队强度分散度:各队近 5 场场均进球 → 跨队标准差(压缩=强弱分化减弱)。"""
+        """球队 latent strength 分散度(审查十 P1-1)。
+
+        以**净胜球均值**作为 latent strength 近似(攻击-防守综合,
+        含进失球两端信息;系统已有 ELO/xG 时可在特征层替换)。
+        strength_i = mean(该队近 5 场进球) - mean(该队近 5 场失球)
+        dispersion = std(全队 strength) —— 这才是"强弱分化程度"。
+        """
         import collections
         per_team = collections.defaultdict(list)
         for m in ms:
             gh, ga = (m.home_goals or 0), (m.away_goals or 0)
-            per_team[m.home_team].append(gh)
-            per_team[m.away_team].append(ga)
-        means = []
+            per_team[m.home_team].append((gh, ga))
+            per_team[m.away_team].append((ga, gh))
+        strengths = []
         for v in per_team.values():
             if len(v) >= 3:
-                means.append(sum(v) / len(v))
-        if len(means) < 6:
+                gf = sum(x[0] for x in v) / len(v)
+                ga2 = sum(x[1] for x in v) / len(v)
+                strengths.append(gf - ga2)
+        if len(strengths) < 6:
             return None
-        return float(np.std(means))
+        return float(np.std(strengths))
 
     recent = rows[:window]
     baseline = rows[window:window + baseline_window]
@@ -109,15 +117,19 @@ def detect(league_id, cutoff_dt, window: int = 100,
     disp_r = _dispersion(recent)
     disp_b = _dispersion(baseline)
     disp_ratio = (disp_r / disp_b) if (disp_r is not None and disp_b and disp_b > 0) else None
-    # 漂移评分:各维度偏离的归一化和
-    shift = max(
-        abs(rd - bd) / 0.10,      # 平局率 ±10pp 满量程
-        abs(rg - bg) / 0.60,      # 场均进球 ±0.6 满量程
-        abs(rh - bh) / 0.12,      # 主胜率 ±12pp 满量程
-        abs(rl - bl) / 0.12,      # 低分率 ±12pp 满量程
-        (max(0.0, 1.0 - (disp_ratio or 1.0))) / 0.25,  # 强度压缩 ±25% 满量程
-    )
-    shift = float(min(1.0, shift))
+    # 审查十 P1-2:漂移评分 = 加权复合(非 max),单维贡献 cap 0.35
+    # —— 防止单一维度统计噪声把整个 regime 判成剧烈漂移
+    _c_draw = abs(rd - bd) / 0.10        # 平局率 ±10pp 满量程
+    _c_goal = abs(rg - bg) / 0.60        # 场均进球 ±0.6 满量程
+    _c_home = abs(rh - bh) / 0.12        # 主胜率 ±12pp 满量程
+    _c_low = abs(rl - bl) / 0.12         # 低分率 ±12pp 满量程
+    _c_str = (max(0.0, 1.0 - (disp_ratio or 1.0))) / 0.25  # 强度压缩 ±25% 满量程
+    _comps = [_c_draw, _c_goal, _c_home, _c_low, _c_str]
+    _capped = [min(x, 0.35) for x in _comps]
+    shift = float(np.clip(
+        0.25 * _capped[0] + 0.25 * _capped[1] + 0.15 * _capped[2]
+        + 0.15 * _capped[3] + 0.20 * _capped[4],
+        0.0, 1.0))
     # Calibration Drift(尽力而为:production 快照的近期 ECE)
     calib = _calibration_drift(league_id, cutoff_dt)
 

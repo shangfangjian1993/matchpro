@@ -69,6 +69,17 @@ def predict_match(league_type: LeagueType, home_team: str, away_team: str,
     # 上下文 + 引擎(统一预测链路 —— 生产/回测/OOF 同入口,审查 P0-1)
     ctx = ContextBuilder(models_dir).build(league_type, home_team, away_team, match_date)
     result = PredictionEngine(models_dir).predict(ctx)
+    # 审查十 P1-4:概率不变量统一校验(违规 → 核心失败,不生成正式快照)
+    try:
+        from app.core.exceptions import CorePredictionError as _CPE
+        from app.prediction.invariants import validate_prediction as _vp
+        _vios = _vp(result)
+        if _vios:
+            raise _CPE("INVALID_PROBABILITY", "概率不变量违规: " + "; ".join(_vios[:5]))
+    except _CPE:
+        raise
+    except Exception:
+        pass  # 校验器自身异常不阻断预测
     _internal = result.pop("_internal", {})
 
     # Snapshot(冻结最终输出 + 输入 + 全版本)

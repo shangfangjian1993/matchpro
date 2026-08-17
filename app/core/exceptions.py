@@ -24,3 +24,17 @@ class ModelNotReadyError(AppError):
 
 class DataError(AppError):
     """数据缺失/异常。"""
+
+
+class CorePredictionError(AppError):
+    """审查十 P0-1:核心预测失败 —— 直接失败,不生成正式 Snapshot。
+
+    code ∈ {CORE_PREDICTION_FAILURE, INVALID_LAMBDA, INVALID_PROBABILITY,
+            ENSEMBLE_FAILURE, SCORE_MATRIX_FAILURE, ...}。
+    与"可选成员降级"(GBM/CALIBRATION/OPTIONAL_PRIOR)严格区分:
+    核心失败不允许静默退回 HGBR 后返回"看起来正常"的预测。
+    """
+
+    def __init__(self, code: str, message: str):
+        super().__init__(f"[{code}] {message}", status_code=500)
+        self.code = code
