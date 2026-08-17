@@ -154,7 +154,7 @@ class PoissonLossHGBR(BaseEstimator, RegressorMixin):
 
         # 训练梯度提升模型
         self.model = self._train_gradient_boosting(X_train, y_train, X_val, y_val,
-                                                   w_train, None)
+                                                   w_train)
 
         # 计算特征重要性
         self.feature_importance_ = self._calculate_feature_importance()
@@ -164,8 +164,7 @@ class PoissonLossHGBR(BaseEstimator, RegressorMixin):
 
     def _train_gradient_boosting(self, X_train: pd.DataFrame, y_train: pd.Series,
                                 X_val: pd.DataFrame | None, y_val: pd.Series | None,
-                                w_train: np.ndarray | None = None,
-                                w_val: np.ndarray | None = None) -> Any:
+                                w_train: np.ndarray | None = None) -> Any:
         """
         训练梯度提升模型
         

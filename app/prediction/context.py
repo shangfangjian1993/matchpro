@@ -96,8 +96,8 @@ class ContextBuilder:
         try:
             import os as _os
 
-            from data.injuries.collector import InjuriesCollector
-            from data.injuries.signals import injuries_to_signals, signal_brief
+            from app.data.sources.injuries.collector import InjuriesCollector
+            from app.data.sources.injuries.signals import injuries_to_signals, signal_brief
 
             from app.prediction.info_fusion import signals_to_adjust
             from app.prediction.lineup import build_strength_vector

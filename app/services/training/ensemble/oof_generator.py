@@ -37,7 +37,7 @@ def generate(lt, league, matches, verbose=True):
         print(f"  {lt.value}: 仅 {n} 场,不足 200,跳过")
         return []
     boundaries = [int(n * k / K_SEG) for k in range(1, K_SEG)] + [n]
-    oof_samples, seg_done = [], 0
+    oof_samples = []
     for k in range(1, K_SEG):
         seg_start, seg_end = boundaries[k - 1], boundaries[k]
         seg = matches[seg_start:seg_end]
@@ -96,7 +96,6 @@ def generate(lt, league, matches, verbose=True):
             got += 1
         if verbose:
             print(f"    → 段{k} 采样 {got} 场", flush=True)
-        seg_done += 1
     if len(oof_samples) < MIN_OOF_SAMPLES:
         print(f"  {lt.value}: OOF 样本仅 {len(oof_samples)}(<{MIN_OOF_SAMPLES}),跳过权重学习")
         return []

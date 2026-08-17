@@ -106,8 +106,7 @@ class ModelTrainer:
     def train_model(self, data: pd.DataFrame, league_type: LeagueType,
                    target_column: str = "goals",
                    cross_validation: bool = True,
-                   cv_folds: int = 5,
-                   europe_events=None) -> dict[str, Any]:
+                   cv_folds: int = 5) -> dict[str, Any]:
         """
         训练模型
         
@@ -207,7 +206,7 @@ class ModelTrainer:
         cv_mse = []
         cv_mae = []
 
-        for fold, (train_idx, test_idx) in enumerate(cv_folds_list):
+        for _fold, (train_idx, test_idx) in enumerate(cv_folds_list):
             X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
             y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
 
@@ -350,23 +349,3 @@ class ModelTrainer:
                 self.training_history = json.load(f)
 
         logger.info(f"模型已从 {filepath} 加载")
-
-    def get_training_summary(self) -> dict[str, Any]:
-        """
-        获取训练摘要
-        
-        Returns:
-            训练摘要
-        """
-        if not self.training_history:
-            return {"message": "没有训练历史"}
-
-        summary = {
-            "total_models_trained": len(self.training_history),
-            "training_dates": [entry["timestamp"] for entry in self.training_history],
-            "league_types": [entry["league_type"] for entry in self.training_history],
-            "model_metrics": self.model_metrics,
-            "cross_validation_results": self.cross_validation_results
-        }
-
-        return summary

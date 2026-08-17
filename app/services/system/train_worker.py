@@ -27,11 +27,6 @@ for _p in (_PKG_DIR, _ROOT):
         sys.path.insert(0, _p)
 
 
-def _default_database_url() -> str:
-    """与 api/app.py 的默认值保持一致(本地 sqlite;生产由环境变量注入)"""
-    return "sqlite:///" + os.path.join(_ROOT, "data", "football.db")
-
-
 def main() -> int:
     ap = argparse.ArgumentParser(description="模型训练 worker")
     ap.add_argument("--task-id", required=True, type=int)
@@ -53,7 +48,8 @@ def main() -> int:
     from app.data.adapters import _resolve_league_type
     from app.services.training.trainer import train_model
 
-    init_db(os.environ.get("DATABASE_URL", None))
+    from app.api.db import default_database_url as _dflt
+    init_db(os.environ.get("DATABASE_URL") or _dflt())
 
     from app.core.paths import MODELS_DIR as _MD
     models_dir = os.environ.get("MODELS_DIR") or str(_MD)
