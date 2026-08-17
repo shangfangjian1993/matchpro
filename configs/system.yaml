@@ -1,5 +1,14 @@
 database:
+  # PostgreSQL+Redis 改造:env DATABASE_URL 优先;此处为配置单一源。
+  # 生产(推荐):
+  #   default_url: postgresql+psycopg2://matchpro:CHANGE_ME@postgres:5432/football
+  # 本地开发(sqlite 回退):
   default_url: sqlite:///data/football.db
+redis:
+  # 缓存后端:local(单进程内存)| redis(跨进程共享,生产)
+  cache_backend: local
+  url: redis://localhost:6379/0
+  prediction_ttl: 600
 api:
   host: 0.0.0.0
   port: 8000

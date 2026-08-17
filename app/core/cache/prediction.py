@@ -2,20 +2,33 @@
 
 键 = 对阵 + 日期 + 数据版本(hist_max_id/updated)+ 模型 mtime +
       Ensemble 权重/DC-NB/校准器 mtime(审查 P0-3:含 .cal)。
+
+PostgreSQL+Redis 改造:后端抽象(CACHE_BACKEND=local|redis)。
+- local: 单进程线程安全内存(默认,开发/单 worker)
+- redis: 跨进程共享(生产多 worker / 多实例),键序列化 pickle + TTL
+ArtifactCache(模型对象)保持本地 —— 大对象 + 绑定本地文件 mtime,
+跨进程共享收益低且 Redis 承载大对象不经济。
 """
 from __future__ import annotations
 
 import os
-import threading
+
+from app.core.cache.backend import get_backend
 
 
 class PredictionCache:
-    """预测结果缓存:线程安全 + 容量淘汰(dict 插入序)。"""
+    """预测结果缓存:后端可切换(内存/Redis),线程安全。"""
 
     def __init__(self, max_size: int | None = None):
-        self.max_size = max_size or int(os.environ.get("PREDICT_CACHE_MAX", "256"))
-        self._data: dict = {}
-        self._lock = threading.Lock()
+        self._max = max_size or int(os.environ.get("PREDICT_CACHE_MAX", "256"))
+        self._backend = get_backend(os.environ.get("CACHE_BACKEND"), max_size=self._max)
+        # 预测结果 TTL(秒);配置 prediction.cache_ttl,默认 600
+        try:
+            from app.core.config import load_yaml
+            self._ttl = int((load_yaml("models.yaml").get("prediction") or {})
+                            .get("cache_ttl", 600))
+        except Exception:
+            self._ttl = 600
 
     def key(self, league_type, home_team, away_team, match_dt,
             hist_max_id, models_dir, hist_max_updated=None):
@@ -39,16 +52,11 @@ class PredictionCache:
                 hist_max_id, hist_max_updated, mtime, _ens_mtime)
 
     def get(self, key):
-        with self._lock:
-            v = self._data.get(key)
-            return dict(v) if v is not None else None
+        v = self._backend.get(key)
+        return dict(v) if v is not None else None
 
     def put(self, key, value) -> None:
-        with self._lock:
-            if len(self._data) >= self.max_size and key not in self._data:
-                self._data.pop(next(iter(self._data)))
-            self._data[key] = value
+        self._backend.put(key, value, ttl=self._ttl)
 
     def clear(self) -> None:
-        with self._lock:
-            self._data.clear()
+        self._backend.clear()

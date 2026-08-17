@@ -50,15 +50,26 @@ _session = None
 
 
 def default_database_url() -> str:
-    """环境变量 DATABASE_URL 优先;默认项目根/data/football.db(sqlite 本地开发)。"""
+    """数据库 URL 解析(PostgreSQL+Redis 改造,配置单一源)。
+
+    优先级:env DATABASE_URL > configs/system.yaml database.default_url
+    (生产配置 postgresql://user:pass@host:5432/football) > 默认 sqlite。
+    """
     import os
-    return os.environ.get(
-        "DATABASE_URL",
-        # 审查 §28:数据文件在根 data/football.db(引擎代码在 app/data/)
-        "sqlite:///" + os.path.join(os.path.dirname(os.path.dirname(
-            os.path.dirname(os.path.abspath(__file__)))),
-            "data", "football.db"),
-    )
+    env = os.environ.get("DATABASE_URL")
+    if env:
+        return env
+    try:
+        from app.core.config import load_yaml
+        _cfg = load_yaml("system.yaml").get("database") or {}
+        if _cfg.get("default_url"):
+            return _cfg["default_url"]
+    except Exception:
+        pass
+    # 审查 §28:数据文件在根 data/football.db(引擎代码在 app/data/)
+    return "sqlite:///" + os.path.join(os.path.dirname(os.path.dirname(
+        os.path.dirname(os.path.abspath(__file__)))),
+        "data", "football.db")
 
 
 def init_db(database_url: str | None = None):

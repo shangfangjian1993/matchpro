@@ -1,0 +1,51 @@
+# matchpro 部署(PostgreSQL + Redis + API)
+# 用法:
+#   cp .env.example .env   # 填 JWT_SECRET_KEY / ADMIN_PASSWORD / POSTGRES_PASSWORD
+#   docker compose -f deploy/docker-compose.yml up -d
+#   先迁移数据:见 app/services/data/migrate_to_pg.py(SQLite → PG)
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-football}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-football}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-football}"]
+      interval: 5s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 12
+
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    environment:
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-football}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-football}
+      REDIS_URL: redis://redis:6379/0
+      CACHE_BACKEND: redis
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      MODELS_DIR: /app/artifacts/models
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  redisdata:
