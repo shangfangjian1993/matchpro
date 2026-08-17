@@ -55,7 +55,8 @@ def main() -> int:
 
     init_db(os.environ.get("DATABASE_URL", None))
 
-    models_dir = os.environ.get("MODELS_DIR") or os.path.join(_ROOT, "app", "models")
+    from app.core.paths import MODELS_DIR as _MD
+    models_dir = os.environ.get("MODELS_DIR") or str(_MD)
 
     with session_scope():
         task = db.session.get(TrainingTask, args.task_id)

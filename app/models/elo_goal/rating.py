@@ -20,12 +20,26 @@ class EloSystem:
     """足球 ELO 系统:按时间顺序逐场更新,天然防泄漏(赛前 rating = 当前状态)。"""
 
     def __init__(self, initial: float = 1500.0, k: float = 20.0,
-                 home_advantage: float = 70.0, national_k: float = 30.0):
+                 home_advantage: float = 70.0, national_k: float = 30.0,
+                 dyn_k: bool = True, k_max_ratio: float = 2.0, k_tau: float = 50.0):
         self.initial = initial
         self.k = k                    # 俱乐部 K 因子
         self.national_k = national_k  # 国家队 K 因子(比赛少,收敛快)
         self.home_advantage = home_advantage
+        # 审查七 V7-2:Dynamic K —— 新球队(出场少)K 高快速收敛,
+        # 稳定强队 K 平滑。k_eff = k × (1 + (k_max_ratio-1)·exp(-出场数/k_tau))
+        self.dyn_k = dyn_k
+        self.k_max_ratio = k_max_ratio
+        self.k_tau = k_tau
         self._ratings: dict[str, float] = defaultdict(lambda: initial)
+        self._appearances: dict[str, int] = defaultdict(int)
+
+    def _k_factor(self, team: str) -> float:
+        """动态 K 因子:出场 0 → k_max_ratio;出场 → ∞ → 1.0。"""
+        if not self.dyn_k:
+            return 1.0
+        a = self._appearances.get(team, 0)
+        return 1.0 + (self.k_max_ratio - 1.0) * __import__("math").exp(-a / self.k_tau)
 
     def rating(self, team: str) -> float:
         return self._ratings[team]
@@ -56,13 +70,16 @@ class EloSystem:
         - defense:失球对决(失球少的一方防守 ELO 上升)
         """
         k = self.national_k if is_national else self.k
+        # 审查七 V7-2:Dynamic K —— 主客队按各自出场数取因子
+        k_home = k * self._k_factor(home)
+        k_away = k * self._k_factor(away)
         if mode == "overall":
             e_home = self.expected(home, away, home_adv)
             e_away = 1.0 - e_home
             s_home = 1.0 if home_goals > away_goals else (0.5 if home_goals == away_goals else 0.0)
             g = self.goal_weight(home_goals - away_goals)
-            self._ratings[home] += k * g * (s_home - e_home)
-            self._ratings[away] += k * g * ((1.0 - s_home) - e_away)
+            self._ratings[home] += k_home * g * (s_home - e_home)
+            self._ratings[away] += k_away * g * ((1.0 - s_home) - e_away)
         elif mode == "attack":
             # 攻击 ELO:进球数 vs 期望进球(rating 差推导,连续回归式)
             # 基线按实际场均进球校准(约 1.6/队),spread 控制差分配对期望
@@ -71,18 +88,20 @@ class EloSystem:
             e_home = base + diff * spread
             e_away = base - diff * spread
             # 更新幅度 clip(防膨胀):单场 ±25
-            self._ratings[home] += max(-25.0, min(25.0, k * (home_goals - e_home)))
-            self._ratings[away] += max(-25.0, min(25.0, k * (away_goals - e_away)))
+            self._ratings[home] += max(-25.0, min(25.0, k_home * (home_goals - e_home)))
+            self._ratings[away] += max(-25.0, min(25.0, k_away * (away_goals - e_away)))
         elif mode == "defense":
             # 防守 ELO:失球数 vs 期望失球(防守好 → 期望失球少)
             base, spread = 1.6, 1.0
             diff = (self._ratings[home] - self._ratings[away]) / 400.0
             e_home = base - diff * spread
             e_away = base + diff * spread
-            self._ratings[home] += max(-25.0, min(25.0, k * (e_home - away_goals)))
-            self._ratings[away] += max(-25.0, min(25.0, k * (e_away - home_goals)))
+            self._ratings[home] += max(-25.0, min(25.0, k_home * (e_home - away_goals)))
+            self._ratings[away] += max(-25.0, min(25.0, k_away * (e_away - home_goals)))
         else:
             raise ValueError(f"未知 ELO 模式: {mode}")
+        self._appearances[home] += 1
+        self._appearances[away] += 1
         return self._ratings[home], self._ratings[away]
 
 

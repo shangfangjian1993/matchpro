@@ -90,11 +90,20 @@ def train_model(league_type: LeagueType, target_column: str = "goals",
         _prune_old_versions(league_type, models_dir, keep=_MODELS_KEEP)
 
         # ---- V2:Feature Store 注册(特征版本化)----
+        # 审查七 V7-2:Experiment.feature_version 必须用 logical_version()
+        # (规格+实现代码哈希,能识别 Dynamic K 等实现变化),而不是 register 的
+        # 列名哈希 —— 列名不变的实现改动(如 ELO 公式)若只记列哈希,
+        # auto_select 会把"旧特征训练的旧模型"当成兼容新特征,导致分布失配。
         try:
+            from app.features.registry import logical_version as _lv
             from app.features.registry import register as _register_features
             _feats = list(getattr(model, "feature_columns_", None) or [])
             if _feats:
-                model.feature_version_ = _register_features(_feats, league_type.value)
+                try:
+                    _register_features(_feats, league_type.value)  # 审计落 feature_store
+                except Exception:
+                    pass
+                model.feature_version_ = _lv()   # 实现版本(与快照同口径)
         except Exception:
             pass  # 特征注册失败不影响训练
 

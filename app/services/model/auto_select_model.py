@@ -18,7 +18,9 @@ from app.models.registry import _model_path as _mp
 
 def main():
     init_db()
-    models_dir = os.environ.get("MODELS_DIR", os.path.join(_ROOT, "app", "models"))
+    # 审查 P0-4:统一经 paths.MODELS_DIR(artifacts/models)
+    from app.core.paths import MODELS_DIR as _MD
+    models_dir = os.environ.get("MODELS_DIR", str(_MD))
     with session_scope():
         rows = Experiment.query.all()
         # 只考虑最新特征版本(与当前 prepare_features 代码兼容,防止旧特征缺列)
@@ -58,8 +60,10 @@ def main():
             score = (0.40 * m["poisson_loss"] + 0.25 * m["log_loss"]
                      + 0.20 * m["brier"] + 0.15 * m["rps"])
             cur = best.get(lt)
-            if cur is None or score < cur["score"]:
-                best[lt] = {"version": mv, "score": score,
+            # 并列分时选更新实验(id 大者 = 最新训练),避免"同指标旧版本"被选中
+            if (cur is None or score < cur["score"] - 1e-12
+                    or (abs(score - cur["score"]) <= 1e-12 and e.id > cur["id"])):
+                best[lt] = {"version": mv, "score": score, "id": e.id,
                             "poisson_loss": m["poisson_loss"],
                             "log_loss": m["log_loss"], "brier": m["brier"],
                             "rps": m["rps"],

@@ -1,7 +1,7 @@
 """全联赛真实模型训练:对 matches 表中的真实历史数据训练五大联赛模型。
 
 用法(数据灌入后):
-    DATABASE_URL=sqlite:///data/football.db MODELS_DIR=models \
+    DATABASE_URL=sqlite:///<项目根>/data/football.db MODELS_DIR=artifacts/models \
         .mlvenv/bin/python -m multi_league_model_system.app.services.train_all_leagues [--leagues E0,SP1,...]
 
 与 API 训练流程一致(版本化保存 + latest 指针 + ModelRecord 落库),训练指标写入 models 表,
@@ -37,7 +37,9 @@ def main():
 
     from app.api.db import init_db, session_scope
     init_db(os.environ.get("DATABASE_URL", None))
-    models_dir = os.environ.get("MODELS_DIR", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app", "models"))
+    # 审查 P0-4:统一经 paths.MODELS_DIR(artifacts/models),禁止手拼路径
+    from app.core.paths import MODELS_DIR as _MD
+    models_dir = os.environ.get("MODELS_DIR", str(_MD))
 
     results = []
     with session_scope():

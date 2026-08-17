@@ -3,6 +3,7 @@
 对比 HGBR-Poisson 成员(experiments 记录),数据驱动决定接入 Ensemble 权重。
 用法: python -m app.services.gbm_member
 """
+import os
 import sys
 
 _ROOT = str(__import__('app.core.paths', fromlist=['PROJECT_ROOT']).PROJECT_ROOT)
@@ -37,7 +38,11 @@ def main():
             y = np.where(gh > ga, 0, np.where(gh == ga, 1, 2))
             gbm = GbmClassifier()
             m = gbm.train(prepared[cols], pd.Series(y, index=prepared.index))
-            out = f"app/models/artifacts/{lt.value}/gbm.pkl"
+            # 审查 P0-4:统一经 paths.MODELS_DIR(artifacts/models/<league>/gbm.pkl)
+            from app.core.paths import MODELS_DIR as _MD
+            _out_dir = os.path.join(str(_MD), lt.value)
+            os.makedirs(_out_dir, exist_ok=True)
+            out = os.path.join(_out_dir, "gbm.pkl")
             gbm.save(out)
             print(f"{lt.value}: GBM ll={m['log_loss']} brier={m['brier']} "
                   f"rps={m['rps']} acc={m['accuracy']} → {out}", flush=True)

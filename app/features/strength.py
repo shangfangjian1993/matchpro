@@ -94,10 +94,20 @@ def version() -> str:
     """公式哈希(审查 §16):规格 JSON + 实现代码哈希(implementation version)。
 
     规格变化或 compute 实现变化 → 版本变化(特征 A/B 归因)。
+    审查七 V7-2 补漏:ELO 实现在 app/models/elo_goal/rating.py(Dynamic K 等),
+    必须纳入哈希 —— 否则"实现变了但特征版本不变",模型不会触发重训。
     """
     import inspect
     spec = json.dumps(sorted(FEATURES, key=lambda f: f["name"]),
                       ensure_ascii=False, sort_keys=True)
     impl = inspect.getsource(compute)
+    try:
+        from app.models.elo_goal.rating import EloSystem, with_elo_features
+        impl += "|" + inspect.getsource(with_elo_features)
+        impl += "|" + inspect.getsource(EloSystem.update)
+        impl += "|" + inspect.getsource(EloSystem._k_factor)
+        impl += "|" + inspect.getsource(EloSystem.__init__)
+    except Exception:
+        pass  # 实现不可得时仅规格哈希
     raw = spec + "|" + impl
     return hashlib.sha256(raw.encode()).hexdigest()[:12]
