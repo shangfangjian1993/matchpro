@@ -34,7 +34,17 @@ def backfill_snapshot(snapshot, match) -> bool:
 
 
 def _score_matrix(ev: dict) -> list:
-    """从快照重建比分概率矩阵(§REUSE:统一走 ensemble._pois_matrix)。"""
+    """读取冻结的比分矩阵(审查 P1-7)。
+
+    优先用快照保存时的 score_matrix —— 算法后续修改(Poisson/DC/NB/截断/
+    归一化)不得改变历史快照结果;老快照无 score_matrix 时回退 λ 重建。
+    """
+    sm = ev.get("score_matrix")
+    if sm:
+        try:
+            return [[float(x) for x in row] for row in sm]
+        except Exception:
+            pass
     lam = ev.get("lambda") or [1.5, 1.2]
     try:
         from app.models.ensemble import _pois_matrix
@@ -45,17 +55,26 @@ def _score_matrix(ev: dict) -> list:
 
 def replay_all(force: bool = False) -> dict:
     """回放全部快照并返回 §6 汇总。"""
+    import pandas as pd
     from app.api.db import Match, PredictionSnapshot, db
     snaps = (PredictionSnapshot.query.filter(PredictionSnapshot.actual_home_goals.is_(None)).all()
              if not force else PredictionSnapshot.query.all())
+    # 审查 P1-8:N+1 修复 —— 一次查询建内存索引,循环 O(1) 查找
+    # (27,825 场规模下逐条 SQL 会非常慢)
+    _all_matches = Match.query.filter_by(match_status="finished").all()
+    _match_map = {}
+    for _m in _all_matches:
+        _key = (_m.league_id, _m.home_team, _m.away_team,
+                str(pd.Timestamp(_m.match_date).date()))
+        _match_map.setdefault(_key, []).append(_m)
     filled = 0
     for s in snaps:
-        m = Match.query.filter_by(league_id=s.league_id, home_team=s.home_team,
-                                  away_team=s.away_team, match_status="finished").filter(
-            db.func.date(Match.match_date) == db.func.date(s.kickoff)).first()
-        if m is None:
+        _key = (s.league_id, s.home_team, s.away_team,
+                str(pd.Timestamp(s.kickoff).date()))
+        m = _match_map.get(_key)
+        if not m:
             continue
-        backfill_snapshot(s, m)
+        backfill_snapshot(s, m[0])
         filled += 1
     db.session.commit()
     summary = summarize()

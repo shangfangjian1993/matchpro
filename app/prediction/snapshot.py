@@ -23,7 +23,12 @@ logger = logging.getLogger(__name__)
 def save(league, home_team, away_team, match_dt, match_date, result,
          home_lambda, away_lambda, _att_diff, hist_df, model, _pred_df,
          _m, hist_max_id, hist_max_updated, _model_path, models_dir, _cal_info,
-         _feat=None):
+         _feat=None, _score_matrix=None, evaluation_mode: str = "production"):
+    """快照落库(幂等;冻结校准后最终输出)。核心失败 raise —— 快照与预测原子。
+
+    _score_matrix: 预测时冻结的比分矩阵(审查 P1-7,Replay 不得用 λ 重算)。
+    evaluation_mode: production / historical_replay / walk_forward(审查六-7)。
+    """
     """快照落库(幂等;冻结校准后最终输出)。核心失败 raise —— 快照与预测原子。"""
     from app.api.db import PredictionSnapshot, Team, db
 
@@ -76,10 +81,44 @@ def save(league, home_team, away_team, match_dt, match_date, result,
     except Exception as e:
         raise RuntimeError(f"快照失败:特征版本不可计算(不可复现): {e}") from e
 
+    # ── 阶段 3.5:完整模型集合哈希(审查 P0.5/十九)───────────────
+    # Goal HGBR 之外,必须冻结 GBM / Ensemble / Calibration 各自版本,否则
+    # 快照不能代表"预测那一刻的完整模型集合"。
+    _gbm_hash = None
+    try:
+        _gbm_path = os.path.join(str(__import__("app.core.paths", fromlist=["PROJECT_ROOT"]).PROJECT_ROOT),
+                                 "app", "models", "artifacts", league.league_type, "gbm.pkl")
+        with open(_gbm_path, "rb") as _gf:
+            _gbm_hash = hashlib.sha256(_gf.read()).hexdigest()[:12]
+    except OSError:
+        _gbm_hash = None
+    _ens_hash = None
+    try:
+        _ens_dir = os.path.join(str(__import__("app.core.paths", fromlist=["PROJECT_ROOT"]).PROJECT_ROOT),
+                                "artifacts", "ensemble")
+        _ens_raw = ""
+        for _ef in ("ensemble_weights.json", "dc_nb_params.json"):
+            with open(os.path.join(_ens_dir, _ef), "rb") as _f2:
+                _ens_raw += _f2.read().hex()
+        _ens_hash = hashlib.sha256(_ens_raw.encode()).hexdigest()[:12]
+    except OSError:
+        _ens_hash = None
+
     _snapshot = {
         "data_version": _data_hash[:12],
         "feature_version": _feature_ver,
         "model_version": _model_hash[:12],
+        "evaluation_mode": evaluation_mode,
+        "model_set": {
+            "goal": {"version": os.path.basename(_mpath).replace(".pkl", ""),
+                     "sha256": _model_hash},
+            "gbm": {"sha256": _gbm_hash} if _gbm_hash else None,
+            "ensemble": {"sha256": _ens_hash} if _ens_hash else None,
+            "calibration": ({"method": _cal_info["method"],
+                             "sha256": _cal_info.get("artifact_hash")}
+                            if _cal_info else None),
+        },
+        "score_matrix": (_score_matrix if _score_matrix is not None else []),
         # 审查 P1-11:版本 = artifact 哈希(唯一标识);无哈希时回退 method:n
         "calibration_version": (
             f"{_cal_info['method']}:{_cal_info['artifact_hash']}"

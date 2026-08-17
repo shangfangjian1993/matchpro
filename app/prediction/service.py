@@ -38,7 +38,14 @@ def _poisson_proba(lambda_: float, max_goals: int = 10) -> np.ndarray:
 
 
 def predict_match(league_type: LeagueType, home_team: str, away_team: str,
-                  match_date=None, models_dir: str = "app/models") -> dict:
+                  match_date=None, models_dir: str = "app/models",
+                  evaluation_mode: str = "production") -> dict:
+    """预测单场比赛。
+
+    evaluation_mode(审查六-7):production(预测今天/未来)/ historical_replay
+    (当前模型回看历史)/ walk_forward(严格当时信息训练) —— 写入 Snapshot,
+    历史回测结果不得与 production 混淆。
+    """
     """预测单场比赛:Goal Engine(λ/比分矩阵)→ Outcome Engine(1X2+GBM)
     → Calibration → Snapshot(冻结最终输出)。"""
     if not home_team or not away_team:
@@ -168,6 +175,9 @@ def predict_match(league_type: LeagueType, home_team: str, away_team: str,
         g = compute_members(_lam_h, _lam_a, _lam_eh, _lam_ea, _tau, _phi, _w)
         _members = g["members"]
         _score_out = g["score_out"]
+        _fused_matrix = g.get("fused_matrix")
+        if _fused_matrix is not None:
+            _fused_matrix = _fused_matrix.tolist()   # ndarray → list(json 安全)
         home_lambda, away_lambda = g["fused_lams"]
         _goal_probs = fuse_probs(_members, _w)
 
@@ -231,7 +241,8 @@ def predict_match(league_type: LeagueType, home_team: str, away_team: str,
     snapshot_service.save(league, home_team, away_team, match_dt, match_date, result,
                           home_lambda, away_lambda, _att_diff, hist_df, model, _pred_df,
                           _m, hist_max_id, hist_max_updated, _model_path, models_dir, _cal_info,
-                          _feat=_feat)
+                          _feat=_feat, _score_matrix=_fused_matrix,
+                          evaluation_mode=evaluation_mode)
 
     _cache_put(cache_key, result)
     return result

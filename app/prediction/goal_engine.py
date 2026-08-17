@@ -36,6 +36,8 @@ def compute_members(lam_h: float, lam_a: float, lam_eh: float, lam_ea: float,
     }
     fused_matrix = fuse_score_matrix(matrices, weights)
     score_out = score_outputs(fused_matrix)
+    # 审查 P1-7:快照需冻结 score matrix(Replay 不得用 λ 重算,否则算法
+    # 改动会改变历史快照结果);fused_matrix 直接给 Snapshot 落库
     wh = weights.get("hgbr", 1.0) + weights.get("dc", 0.0) + weights.get("nb", 0.0)
     we = weights.get("elo", 0.0)
     wg = wh + we
@@ -46,4 +48,5 @@ def compute_members(lam_h: float, lam_a: float, lam_eh: float, lam_ea: float,
                       wh / wg * lam_a + we / wg * lam_ea)
     else:
         fused_lams = (lam_h, lam_a)
-    return {"members": members, "score_out": score_out, "fused_lams": fused_lams}
+    return {"members": members, "score_out": score_out, "fused_lams": fused_lams,
+            "fused_matrix": fused_matrix}
