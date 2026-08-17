@@ -48,8 +48,9 @@ K_SEG = 4                      # 时间段数
 SAMPLE_PER_SEG = 40            # 每段最大采样场次
 MIN_PREFIX_ROWS = 100          # 前缀最少行数(联赛阈值)
 MIN_HISTORY = 50               # 单场最少历史
-W_OUT = os.path.join(_ROOT, "artifacts", "ensemble", "ensemble_weights.json")
-P_OUT = os.path.join(_ROOT, "artifacts", "ensemble", "dc_nb_params.json")
+_AD = str(__import__("app.core.paths", fromlist=["ARTIFACTS_DIR"]).ARTIFACTS_DIR)
+W_OUT = os.path.join(_AD, "ensemble", "ensemble_weights.json")
+P_OUT = os.path.join(_AD, "ensemble", "dc_nb_params.json")
 
 
 def _outcome(hg, ag):

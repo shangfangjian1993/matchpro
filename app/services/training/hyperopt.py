@@ -66,7 +66,7 @@ def main():
             "best_params": best["params"],
             "metrics": {k: best[k] for k in ("log_loss", "brier", "rps")},
         }
-        _exp_dir = os.path.join(_ROOT, "artifacts", "experiments", "hyperopt")
+        _exp_dir = os.path.join(str(__import__("app.core.paths", fromlist=["ARTIFACTS_DIR"]).ARTIFACTS_DIR), "experiments", "hyperopt")
         os.makedirs(_exp_dir, exist_ok=True)
         with open(os.path.join(_exp_dir, "best.json"), "w",
                   encoding="utf-8") as f:

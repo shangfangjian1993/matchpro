@@ -27,12 +27,15 @@ logger = logging.getLogger(__name__)
 
 def train_model(league_type: LeagueType, target_column: str = "goals",
                 cross_validation: bool = True, cv_folds: int = 5,
-                models_dir: str = "app/models") -> dict:
+                models_dir: str | None = None) -> dict:
     """
     用数据库中的历史比赛训练模型并保存。
     返回训练指标(与前端 /models/performance 期望字段一致)。
     """
 
+    if models_dir is None:
+        from app.core.paths import MODELS_DIR as _MD
+        models_dir = str(_MD)
     league = League.query.filter_by(league_type=league_type.value).first()
     if league is None:
         raise ValueError(f"数据库中还没有 {league_type.value} 的联赛数据,请先录入比赛数据")

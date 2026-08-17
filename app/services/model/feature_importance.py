@@ -29,7 +29,7 @@ def main():
     init_db()
     with session_scope():
         league = League.query.filter_by(league_type="premier_league").first()
-        model = _load_model(LeagueType.PREMIER_LEAGUE, "app/models")
+        model = _load_model(LeagueType.PREMIER_LEAGUE, str(__import__("app.core.paths", fromlist=["MODELS_DIR"]).MODELS_DIR))
         matches = Match.query.filter_by(league_id=league.id, match_status="finished").all()
         df = matches_to_dataframe(matches, league_name=league.name,
                                   league_season=league.season or "")

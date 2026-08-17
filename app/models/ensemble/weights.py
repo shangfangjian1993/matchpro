@@ -66,9 +66,8 @@ def load_weights(league_key: str, default: dict | None = None) -> dict:
     path = _WEIGHTS_PATH
     if path is None:
         try:
-            path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
-                os.path.dirname(os.path.abspath(__file__))))),
-                "artifacts", "ensemble", "ensemble_weights.json")
+            from app.core.paths import ARTIFACTS_DIR as _AD
+            path = os.path.join(str(_AD), "ensemble", "ensemble_weights.json")
         except Exception:
             path = None
     try:

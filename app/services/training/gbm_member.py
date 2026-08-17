@@ -27,7 +27,7 @@ def main():
             league = League.query.filter_by(league_type=lt.value).first()
             if league is None:
                 continue
-            model = _load_model(lt, "app/models")
+            model = _load_model(lt, str(__import__("app.core.paths", fromlist=["MODELS_DIR"]).MODELS_DIR))
             matches = Match.query.filter_by(league_id=league.id, match_status="finished").all()
             df = matches_to_dataframe(matches, league_name=league.name,
                                       league_season=league.season or "")

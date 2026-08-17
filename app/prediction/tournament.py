@@ -15,7 +15,7 @@ from app.models.loader import _load_model
 
 def predict_tournament(league_type: LeagueType, teams: list,
                        num_simulations: int = 1000,
-                       models_dir: str = "app/models",
+                       models_dir: str | None = None,
                        seed: int | None = None) -> dict:
     """
     赛事模拟:对每支球队预测当前进球强度,单淘汰随机配对模拟,
@@ -24,6 +24,8 @@ def predict_tournament(league_type: LeagueType, teams: list,
     seed: 随机种子。默认 None(每次调用使用系统熵,结果不同);
           传入固定值可复现结果。
     """
+    from app.core.paths import MODELS_DIR as _MD
+    models_dir = models_dir or str(_MD)
     from app.api.db import League, Match
 
     if not teams or len(teams) < 2:

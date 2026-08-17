@@ -14,7 +14,7 @@ _GBM_CACHE = ArtifactCache(8)
 
 def load_gbm(league_type, models_dir: str):
     """加载 GBM 分类成员(统一 ArtifactCache);不存在返回 None。"""
-    path = os.path.join(models_dir, "artifacts", league_type.value, "gbm.pkl")
+    path = os.path.join(models_dir, league_type.value, "gbm.pkl")  # 审查 P0-4:models_dir=模型根
     if not os.path.exists(path):
         return None
     try:

@@ -15,7 +15,7 @@ from app.data.adapters import _resolve_league_type
 
 router = APIRouter(prefix="/api", tags=["models"])
 
-MODELS_DIR = os.environ.get("MODELS_DIR", "app/models")
+MODELS_DIR = os.environ.get("MODELS_DIR", str(__import__("app.core.paths", fromlist=["MODELS_DIR"]).MODELS_DIR))
 
 
 def _worker_script() -> str:
@@ -80,7 +80,7 @@ def delete_model(model_id: int, admin=Depends(require_admin)):
         raise HTTPException(404, "模型不存在")
     # 审查 §6:删除 artifacts/<league>/ 下的全部资产(与当前目录结构一致)
     removed = []
-    _art_dir = os.path.join(MODELS_DIR, "artifacts", record.league_type)
+    _art_dir = os.path.join(MODELS_DIR, record.league_type)
     for pat in (os.path.join(_art_dir, "*.pkl"),
                 os.path.join(_art_dir, "*.pkl.sha256"),
                 os.path.join(_art_dir, "*.pkl.json")):

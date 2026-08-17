@@ -61,7 +61,7 @@ def save(league, home_team, away_team, match_dt, match_date, result,
     except Exception:
         _ens_w = {}
     try:
-        _dcp = json.load(open(os.path.join(str(__import__("app.core.paths", fromlist=["PROJECT_ROOT"]).PROJECT_ROOT), "artifacts", "ensemble", "dc_nb_params.json"),
+        _dcp = json.load(open(os.path.join(str(__import__("app.core.paths", fromlist=["ARTIFACTS_DIR"]).ARTIFACTS_DIR), "ensemble", "dc_nb_params.json"),
                               encoding="utf-8")).get(league.league_type, {})
     except Exception:
         _dcp = {}
@@ -86,16 +86,16 @@ def save(league, home_team, away_team, match_dt, match_date, result,
     # 快照不能代表"预测那一刻的完整模型集合"。
     _gbm_hash = None
     try:
-        _gbm_path = os.path.join(str(__import__("app.core.paths", fromlist=["PROJECT_ROOT"]).PROJECT_ROOT),
-                                 "app", "models", "artifacts", league.league_type, "gbm.pkl")
+        _gbm_path = os.path.join(str(__import__("app.core.paths", fromlist=["MODELS_DIR"]).MODELS_DIR),
+                                 league.league_type, "gbm.pkl")
         with open(_gbm_path, "rb") as _gf:
             _gbm_hash = hashlib.sha256(_gf.read()).hexdigest()[:12]
     except OSError:
         _gbm_hash = None
     _ens_hash = None
     try:
-        _ens_dir = os.path.join(str(__import__("app.core.paths", fromlist=["PROJECT_ROOT"]).PROJECT_ROOT),
-                                "artifacts", "ensemble")
+        _ens_dir = os.path.join(str(__import__("app.core.paths", fromlist=["ARTIFACTS_DIR"]).ARTIFACTS_DIR),
+                                "ensemble")
         _ens_raw = ""
         for _ef in ("ensemble_weights.json", "dc_nb_params.json"):
             with open(os.path.join(_ens_dir, _ef), "rb") as _f2:

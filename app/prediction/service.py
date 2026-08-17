@@ -38,7 +38,7 @@ def _poisson_proba(lambda_: float, max_goals: int = 10) -> np.ndarray:
 
 
 def predict_match(league_type: LeagueType, home_team: str, away_team: str,
-                  match_date=None, models_dir: str = "app/models",
+                  match_date=None, models_dir: str | None = None,
                   evaluation_mode: str = "production") -> dict:
     """预测单场比赛。
 
@@ -48,6 +48,9 @@ def predict_match(league_type: LeagueType, home_team: str, away_team: str,
     """
     """预测单场比赛:Goal Engine(λ/比分矩阵)→ Outcome Engine(1X2+GBM)
     → Calibration → Snapshot(冻结最终输出)。"""
+    if models_dir is None:
+        from app.core.paths import MODELS_DIR as _MD
+        models_dir = str(_MD)
     if not home_team or not away_team:
         raise ValueError("缺少主队或客队名称")
     if home_team == away_team:
@@ -157,7 +160,7 @@ def predict_match(league_type: LeagueType, home_team: str, away_team: str,
         _tau, _phi = 0.0, 1e9
         try:
             import json as _json
-            _pp = os.path.join(str(__import__("app.core.paths", fromlist=["PROJECT_ROOT"]).PROJECT_ROOT), "artifacts", "ensemble", "dc_nb_params.json")
+            _pp = os.path.join(str(__import__("app.core.paths", fromlist=["ARTIFACTS_DIR"]).ARTIFACTS_DIR), "ensemble", "dc_nb_params.json")
             if os.path.exists(_pp):
                 with open(_pp, encoding="utf-8") as _pf:
                     _prm = _json.load(_pf)

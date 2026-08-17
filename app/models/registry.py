@@ -28,17 +28,17 @@ def _resolve_league_type(league_type: str) -> LeagueType:
 def _model_path(league_type: LeagueType, models_dir: str, version: str | None = None) -> str:
     """模型文件路径:version 为 None 时返回 latest 指针文件;否则返回版本化文件"""
     if version:
-        return os.path.join(models_dir, "artifacts", league_type.value, f"{version}.pkl")
+        return os.path.join(models_dir, league_type.value, f"{version}.pkl")
     _active = _active_version(league_type, models_dir)
     if _active:
-        _p = os.path.join(models_dir, "artifacts", league_type.value, f"{_active}.pkl")
+        _p = os.path.join(models_dir, league_type.value, f"{_active}.pkl")
         if os.path.exists(_p):
             return _p
     _vs = _existing_versions(league_type, models_dir)
     if _vs:
-        return os.path.join(models_dir, "artifacts", league_type.value, f"{_vs[-1]}.pkl")
+        return os.path.join(models_dir, league_type.value, f"{_vs[-1]}.pkl")
     # 审查 §44:无 latest 语义(active_models.json 为唯一指针);版本缺失 → 调用方处理
-    return os.path.join(models_dir, "artifacts", league_type.value, "_missing.pkl")
+    return os.path.join(models_dir, league_type.value, "_missing.pkl")
 
 
 def _is_pointer_file(league_type: LeagueType, models_dir: str, path: str) -> bool:
@@ -48,7 +48,7 @@ def _is_pointer_file(league_type: LeagueType, models_dir: str, path: str) -> boo
     except Exception:
         return False
     for _v in _existing_versions(league_type, models_dir):
-        _p = os.path.join(models_dir, "artifacts", league_type.value, f"{_v}.pkl")
+        _p = os.path.join(models_dir, league_type.value, f"{_v}.pkl")
         try:
             if os.path.exists(_p) and _sha256_of(_p) == _h:
                 return True
@@ -64,7 +64,7 @@ def _version_key(v: str):
 
 def _existing_versions(league_type: LeagueType, models_dir: str) -> list:
     """扫描 models_dir 中该联赛的已保存版本(升序)"""
-    d = os.path.join(models_dir, "artifacts", league_type.value)
+    d = os.path.join(models_dir, league_type.value)
     versions = []
     if os.path.isdir(d):
         for fn in os.listdir(d):

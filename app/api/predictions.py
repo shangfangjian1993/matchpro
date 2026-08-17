@@ -12,7 +12,7 @@ from app.prediction.tournament import predict_tournament
 
 router = APIRouter(prefix="/api/predictions", tags=["predictions"])
 
-MODELS_DIR = os.environ.get("MODELS_DIR", "app/models")
+MODELS_DIR = os.environ.get("MODELS_DIR", str(__import__("app.core.paths", fromlist=["MODELS_DIR"]).MODELS_DIR))
 
 
 @router.post("/match")

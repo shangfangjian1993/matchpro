@@ -25,9 +25,9 @@ class PredictionCache:
         except OSError:
             mtime = 0.0
         _ens_mtime = 0.0
-        from app.core.paths import PROJECT_ROOT
-        _ens_dir = str(PROJECT_ROOT / "artifacts" / "ensemble")
-        _cal_dir = str(PROJECT_ROOT / "artifacts" / "calibration")
+        from app.core.paths import ARTIFACTS_DIR as _AD
+        _ens_dir = str(_AD / "ensemble")
+        _cal_dir = str(_AD / "calibration")
         for _fn in (os.path.join(_ens_dir, "ensemble_weights.json"),
                     os.path.join(_ens_dir, "dc_nb_params.json"),
                     os.path.join(_cal_dir, f"{league_type.value}.cal")):

@@ -12,8 +12,14 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 # 数据文件(§28:根 data/);数据引擎代码在 app/data/
 DATA_DIR = PROJECT_ROOT / "data"
 APP_DATA_DIR = PROJECT_ROOT / "app" / "data"
-MODELS_DIR = PROJECT_ROOT / "app" / "models"
-ARTIFACTS_DIR = MODELS_DIR / "artifacts"
+# 资产体系统一(审查 P0-4):一切产物在根 artifacts/ 下
+#   artifacts/models/<league>/<version>.pkl   模型
+#   artifacts/ensemble/                       权重/τφ
+#   artifacts/calibration/                    校准器
+#   artifacts/experiments/                    实验报告
+# 禁止 os.path.join("artifacts", ...) 散落拼接 —— 一律经本常量
+ARTIFACTS_DIR = PROJECT_ROOT / "artifacts"
+MODELS_DIR = ARTIFACTS_DIR / "models"
 CONFIG_DIR = PROJECT_ROOT / "configs"
 DB_PATH = DATA_DIR / "football.db"
 
