@@ -1,0 +1,73 @@
+{
+  "total": 2006,
+  "unfilled": 8,
+  "evaluated": 1998,
+  "overall": {
+    "n": 1998,
+    "accuracy": 0.503,
+    "log_loss": 1.0057,
+    "brier": 0.6007,
+    "rps": 0.4158,
+    "ece": 0.0227
+  },
+  "leagues": {
+    "bundesliga": {
+      "n": 400,
+      "accuracy": 0.5125,
+      "log_loss": 0.9857,
+      "brier": 0.5886,
+      "rps": 0.3979,
+      "ece": 0.0439
+    },
+    "ligue_1": {
+      "n": 399,
+      "accuracy": 0.5113,
+      "log_loss": 0.9907,
+      "brier": 0.5912,
+      "rps": 0.4226,
+      "ece": 0.0234
+    },
+    "premier_league": {
+      "n": 401,
+      "accuracy": 0.4688,
+      "log_loss": 1.058,
+      "brier": 0.6367,
+      "rps": 0.4387,
+      "ece": 0.0823
+    },
+    "serie_a": {
+      "n": 399,
+      "accuracy": 0.5238,
+      "log_loss": 1.0009,
+      "brier": 0.5957,
+      "rps": 0.4057,
+      "ece": 0.0489
+    },
+    "la_liga": {
+      "n": 399,
+      "accuracy": 0.4987,
+      "log_loss": 0.9931,
+      "brier": 0.591,
+      "rps": 0.4139,
+      "ece": 0.0562
+    }
+  },
+  "by_season": {
+    "2025": {
+      "n": 1047,
+      "accuracy": 0.5119,
+      "log_loss": 0.9921,
+      "brier": 0.5908,
+      "rps": 0.4157,
+      "ece": 0.0202
+    },
+    "2026": {
+      "n": 951,
+      "accuracy": 0.4932,
+      "log_loss": 1.0207,
+      "brier": 0.6115,
+      "rps": 0.4159,
+      "ece": 0.0331
+    }
+  }
+}

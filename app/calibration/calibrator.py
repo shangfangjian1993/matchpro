@@ -220,7 +220,10 @@ class Calibrator:
         payload = {"method": self.method, "n": self.fitted_n,
                    "alpha": self.alpha, "beta": self.beta}
         if self.method == "isotonic":
-            payload["regs"] = [(r.X_thresholds_, r.y_thresholds_) for r in self._regs]
+            # 审查:isotonic 必须保存完整 sklearn 对象(pickle bytes)——
+            # 仅存阈值再手工重建会缺 X_min_/X_max_/f_ 等内部属性,
+            # load 后 apply 直接 AttributeError。
+            payload["regs"] = [pickle.dumps(r) for r in self._regs]
         with open(path, "wb") as f:
             pickle.dump(payload, f)
 
@@ -235,11 +238,24 @@ class Calibrator:
         if cal.method == "isotonic":
             from sklearn.isotonic import IsotonicRegression
             regs = []
-            for xt, yt in d.get("regs", []):
-                r = IsotonicRegression(y_min=0.0, y_max=1.0, out_of_bounds="clip")
-                r.X_thresholds_ = xt
-                r.y_thresholds_ = yt
-                regs.append(r)
+            for item in d.get("regs", []):
+                if isinstance(item, (bytes, bytearray)):
+                    regs.append(pickle.loads(item))       # 新格式:完整对象
+                else:
+                    # 旧格式(仅阈值):尽力重建(缺 f_ 时退化为线性插值)
+                    xt, yt = item
+                    r = IsotonicRegression(y_min=0.0, y_max=1.0, out_of_bounds="clip")
+                    r.X_thresholds_ = xt
+                    r.y_thresholds_ = yt
+                    r.X_min_ = min(xt)
+                    r.X_max_ = max(xt)
+                    try:
+                        from scipy.interpolate import interp1d
+                        r.f_ = interp1d(xt, yt, bounds_error=False,
+                                        fill_value=(yt[0], yt[-1]))
+                    except Exception:
+                        r.f_ = np.interp
+                    regs.append(r)
             cal._regs = regs
         return cal
 
