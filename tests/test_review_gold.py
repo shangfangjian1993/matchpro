@@ -194,3 +194,57 @@ def test_logical_version_stable_and_includes_switch():
         _json.dumps(fc, sort_keys=True).encode()).hexdigest()[:8])
     manual = _hl.sha256("|".join(parts).encode()).hexdigest()[:12]
     assert v1 == manual, "logical_version 未纳入特征开关状态(实现级版本失效)"
+
+
+# ── 审查九:V7.5 不变量 ──────────────────────────────────────────────────
+def test_learn_weights_max_weight_cap():
+    """单成员权重上限:GBM 过度自信时不得全押(≤ max_weight)。"""
+    from app.models.ensemble.weights import learn_weights
+    import numpy as np
+    rng = np.random.default_rng(1)
+    samples = []
+    for _ in range(150):
+        base = np.array([0.5, 0.3, 0.2]) + rng.normal(0, 0.04, 3)
+        base /= base.sum()
+        a = int(rng.choice(3, p=base))
+        g = np.array([0.98, 0.01, 0.01])
+        g = np.roll(g, a)
+        samples.append({"hgbr": list(base), "gbm": list(g), "actual": a})
+    w = learn_weights(samples, shrinkage=0.15, max_weight=0.7)
+    assert w["gbm"] <= 0.7 + 1e-6
+
+
+def test_pipeline_hash_stable():
+    """pipeline_hash 两次调用一致(源码哈希)。"""
+    from app.prediction.versions import pipeline_hash
+    assert pipeline_hash() == pipeline_hash()
+
+
+def test_data_content_hash_changes_on_edit():
+    """data_hash 内容化:修改任意历史记录内容 → 哈希变化。"""
+    from app.prediction.snapshot import data_content_hash
+    import pandas as pd
+    df = pd.DataFrame([
+        {"date": "2026-01-01", "home_team": "A", "away_team": "B",
+         "home_goals": 2, "away_goals": 1},
+        {"date": "2026-01-02", "home_team": "C", "away_team": "D",
+         "home_goals": 0, "away_goals": 0},
+    ])
+    h1 = data_content_hash(df)
+    df2 = df.copy()
+    df2.loc[1, "away_goals"] = 3
+    assert data_content_hash(df2) != h1
+
+
+def test_ipf_matrix_matches_target():
+    """IPF:调整后矩阵边缘 == 目标 1X2。"""
+    from app.models.ensemble import _pois_matrix
+    from app.prediction.regime import ipf_to_target
+    import numpy as np
+    m = _pois_matrix(1.5, 1.2)
+    t = (0.42, 0.32, 0.26)
+    m2 = ipf_to_target(m, t)
+    hw = m2[np.tril_indices_from(m2, -1)].sum()
+    dr = np.trace(m2)
+    aw = m2[np.triu_indices_from(m2, 1)].sum()
+    assert abs(hw - 0.42) < 1e-6 and abs(dr - 0.32) < 1e-6 and abs(aw - 0.26) < 1e-6
