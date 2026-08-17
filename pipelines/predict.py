@@ -40,6 +40,12 @@ def main():
         "top_scores": r.get("top_scores", []),
         "over_2_5": r.get("over_2_5"), "under_2_5": r.get("under_2_5"),
         "btts": r.get("btts"), "expected_xg": r.get("expected_xg"),
+        # 审查二十四:不确定性(置信度/熵/模型分歧/数据质量)
+        "confidence": r.get("confidence"),
+        "confidence_score": r.get("confidence_score"),
+        "prediction_entropy": r.get("prediction_entropy"),
+        "model_disagreement": r.get("model_disagreement"),
+        "data_quality_score": r.get("data_quality_score"),
     }, ensure_ascii=False, indent=2))
     print("✅ [pipeline] predict 完成(快照已落库)")
 

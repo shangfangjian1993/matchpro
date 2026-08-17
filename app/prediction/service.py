@@ -213,6 +213,39 @@ def predict_match(league_type: LeagueType, home_team: str, away_team: str,
                           "btts": None, "expected_xg": [round(home_lambda, 3), round(away_lambda, 3)]}
     confidence = max(home_win, draw, away_win)
 
+    # ── Uncertainty(审查二十四/二十五):entropy + model disagreement + data quality ──
+    _entropy = 0.0
+    try:
+        import math as _math
+        _entropy = -sum(_p * _math.log(_p) for _p in (home_win, draw, away_win) if _p > 0)
+    except Exception:
+        _entropy = 0.0
+    _disagreement = 0.0
+    try:
+        import numpy as _np
+        _all_p = [list(v) for v in _members.values() if v is not None]
+        if _gbm_probs is not None:
+            _all_p.append(list(_gbm_probs))
+        if len(_all_p) >= 2:
+            _arr = _np.array(_all_p, dtype=float)
+            _means = _arr.mean(axis=0)
+            _disagreement = float(_np.abs(_arr - _means).mean())  # 平均绝对偏差(0=一致)
+    except Exception:
+        _disagreement = 0.0
+    _data_quality = 1.0
+    try:
+        # 只统计模型实际消费的特征白名单列(非全部 DataFrame 列)
+        if _feat is not None and len(_feat) >= 2:
+            _fcols = [col for col in getattr(model, "feature_columns_", [])
+                      if col in _feat.columns]
+            if _fcols:
+                _nan_frac = float(_feat.iloc[-2:][_fcols].isna().mean().mean())
+                _data_quality = round(max(0.0, 1.0 - _nan_frac), 4)
+    except Exception:
+        _data_quality = 1.0
+    _agreement = round(max(0.0, 1.0 - _disagreement), 4)
+    _confidence_score = round(confidence * _agreement * _data_quality, 4)
+
     result = {
         "league_type": league_type.value,
         "home_team": home_team,
@@ -225,6 +258,10 @@ def predict_match(league_type: LeagueType, home_team: str, away_team: str,
         "draw_probability": round(draw, 4),
         "away_win_probability": round(away_win, 4),
         "confidence": round(confidence, 4),
+        "confidence_score": _confidence_score,       # 审查二十四:概率×一致度×数据质量
+        "prediction_entropy": round(_entropy, 4),   # 1X2 熵(越小越确定)
+        "model_disagreement": _disagreement,        # 成员平均绝对偏差(0=完全一致)
+        "data_quality_score": _data_quality,        # 1 - 输入特征 NaN 比例
         "top_scores": _score_out["top_scores"],
         "over_2_5": _score_out["over_2_5"],
         "under_2_5": _score_out["under_2_5"],
