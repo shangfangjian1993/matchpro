@@ -103,6 +103,26 @@ python -m app.services.training.fit_calibration   # 校准拟合(快照 ≥150/�
 uvicorn app.api.app:app --host 0.0.0.0 --port 8000 --workers 2
 ```
 
+## PostgreSQL + Redis 部署(推荐生产)
+
+```bash
+# 1) 环境变量(PG 连接 + Redis 缓存)
+export DATABASE_URL="postgresql+psycopg2://football:密码@localhost:5432/football"
+export REDIS_URL="redis://localhost:6379/0"
+export CACHE_BACKEND=redis        # local=单进程内存 | redis=跨进程共享
+
+# 2) 一次性:SQLite → PostgreSQL 数据迁移(27,825 场 + 快照 + 实验等)
+DATABASE_URL_SRC="sqlite:////data/football.db" DATABASE_URL_PG="$DATABASE_URL" \
+  .venv/bin/python -m app.services.data.migrate_to_pg
+
+# 3) 启动 API(默认从 system.yaml database.default_url 读;env 优先)
+uvicorn app.api.app:app --host 0.0.0.0 --port 8000
+```
+
+- `deploy/docker-compose.yml`(postgres + redis + api)+ `deploy/Dockerfile` 一键部署
+- 缓存后端 `CACHE_BACKEND=redis` 时预测缓存跨进程共享(TTL=prediction.cache_ttl)
+- SQLite 仍为默认本地开发环境(零配置回退)
+
 ## 配置
 
 | 文件 | 职责 |

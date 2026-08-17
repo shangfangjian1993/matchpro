@@ -67,6 +67,22 @@ def main() -> int:
             d.commit()
             total += len(rows)
             print(f"  ✅ {table_name}: {len(rows)} 行")
+    # 同步自增序列(PostgreSQL 序列从 1 开始,必须推进到 max(id),否则主键冲突)
+    print("\n同步自增序列...")
+    with dst.connect() as conn:
+        for table_name in TABLES:
+            table = Base.metadata.tables.get(table_name)
+            if table is None:
+                continue
+            pk = next((c.name for c in table.columns if c.primary_key), None)
+            if pk is None:
+                continue
+            q = f"SELECT setval(pg_get_serial_sequence('{table_name}','{pk}'), COALESCE((SELECT MAX({pk}) FROM {table_name}),1))"
+            try:
+                conn.execute(__import__("sqlalchemy").text(q))
+            except Exception as _e:
+                print(f"  - {table_name} 序列同步跳过: {_e}")
+        conn.commit()
     print(f"\n迁移完成: {total} 行写入 PostgreSQL")
     # 校验计数
     with Session(dst) as d:
