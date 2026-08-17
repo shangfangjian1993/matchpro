@@ -17,7 +17,7 @@ import numpy as np
 
 from app.services.cli import make_parser, run, setup_logging
 
-MIN_SAMPLES = 150  # 每类最少样本(总量,三分类共需)
+MIN_SAMPLES = 250  # 拟合最少样本(60/20/20 三段:train≥150/val≥50/test≥50)
 
 
 def main() -> int:
@@ -52,7 +52,9 @@ def main() -> int:
                 probs.append([p.get("home_win", 0), p.get("draw", 0), p.get("away_win", 0)])
                 labels.append(label)
             # 联赛择优(评审 P1):β/Platt/Isotonic 三方法,评估段选 ECE 最低
-            cal = Calibrator.fit_best(np.array(probs), np.array(labels))
+            # 审查二十三:60/20/20 三段切分(时间序,Train fit / Val choose / Test report)
+            cal = Calibrator.fit_best(np.array(probs), np.array(labels),
+                                      val_fraction=0.25, test_fraction=0.2)
             # 审查:统一 calibration artifact 目录(artifacts/calibration/)
             from app.core.paths import ARTIFACTS_DIR
             _cal_dir = os.path.join(ARTIFACTS_DIR, "calibration")
@@ -61,7 +63,9 @@ def main() -> int:
             cal.save(path)
             fitted += 1
             print(f"✅ {lg.name}: {len(snaps)} 样本 → {path} "
-                  f"(方法 {cal.method}, ECE {getattr(cal, '_ece', 'N/A'):.4f})")
+                  f"(方法 {cal.method}, val ECE {getattr(cal, '_ece', 'N/A'):.4f}, "
+                  f"test ECE {getattr(cal, '_test_ece', 'N/A') if cal._test_ece is not None else 'N/A'}, "
+                  f"test n={cal._test_n})")
         print(f"完成: 拟合 {fitted} 个校准器")
     return 0
 

@@ -123,12 +123,26 @@ class Calibrator:
 
     @classmethod
     def fit_best(cls, probs: np.ndarray, labels: np.ndarray,
-                 val_fraction: float = 0.2) -> Calibrator:
-        """联赛择优(评审 P1):训练段拟合三种,评估段选 ECE 最低。"""
+                 val_fraction: float = 0.2, test_fraction: float = 0.0) -> Calibrator:
+        """联赛择优(评审 P1 + 第五轮审查二十三)。
+
+        三段切分(时间序):
+          Train(60%) → 拟合三种方法
+          Validation(20%) → 选 ECE 最低
+          Test(20%,test_fraction>0 时) → 独立最终报告(选择偏差后)
+        选中方法在 Train+Validation 上重训(更多数据),Test 段 ECE 记录为
+        _test_ece —— 最终 ECE 不再是选择偏差下的值。
+        """
         n = len(probs)
-        split = int(n * (1 - val_fraction))
-        tr_p, tr_l = probs[:split], labels[:split]
-        va_p, va_l = probs[split:], labels[split:]
+        if test_fraction > 0:
+            test_n = int(n * test_fraction)
+            trva_p, trva_l = probs[:-test_n], labels[:-test_n]
+            test_p, test_l = probs[-test_n:], labels[-test_n:]
+        else:
+            trva_p, trva_l, test_p, test_l = probs, labels, None, None
+        split = int(len(trva_p) * (1 - val_fraction))
+        tr_p, tr_l = trva_p[:split], trva_l[:split]
+        va_p, va_l = trva_p[split:], trva_l[split:]
         cands = []
         for fitter, name in ((cls.fit_beta, "beta"), (cls.fit_platt, "platt"),
                              (cls.fit_isotonic, "isotonic")):
@@ -143,8 +157,21 @@ class Calibrator:
             return cls.identity()
         cands.sort(key=lambda t: t[0])
         best = cands[0][2]
+        # 全量(train+val)重训选中方法 —— 生产校准器用更多数据
+        try:
+            best = cands[0][1] == "beta" and cls.fit_beta(trva_p, trva_l) or \
+                   cands[0][1] == "platt" and cls.fit_platt(trva_p, trva_l) or \
+                   cls.fit_isotonic(trva_p, trva_l)
+        except Exception:
+            best = cands[0][2]
         best.fitted_n = n
         best._ece = cands[0][0]
+        if test_p is not None:
+            best._test_ece = _ece_score(best.apply_matrix(test_p), test_l)
+            best._test_n = len(test_p)
+        else:
+            best._test_ece = None
+            best._test_n = 0
         return best
 
     # ---------------- 应用 ----------------

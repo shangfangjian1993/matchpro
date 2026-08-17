@@ -1,0 +1,32 @@
+{
+  "script": "walkforward_backtest",
+  "sample": 12,
+  "retrain_every": 200,
+  "leagues": {
+    "premier_league": {
+      "league": "premier_league",
+      "n": 11,
+      "retrains": 1,
+      "secs": 13.8,
+      "score_hit_rate": 0.0909,
+      "top3_hit_rate": 0.1818,
+      "top5_hit_rate": 0.4545,
+      "result_accuracy": 0.4545,
+      "hcap_05": 0.3636,
+      "hcap_1": 0.5,
+      "over25": 0.3636,
+      "btts": 0.3636,
+      "log_loss": 1.07799,
+      "brier": 0.65628,
+      "rps": 0.50534,
+      "base_log_loss": 1.00995,
+      "base_brier": 0.60732,
+      "base_rps": 0.4547,
+      "d_ll": 0.06804,
+      "d_brier": 0.04897,
+      "d_rps": 0.05064,
+      "ece": 0.1015,
+      "gate_pass": false
+    }
+  }
+}
