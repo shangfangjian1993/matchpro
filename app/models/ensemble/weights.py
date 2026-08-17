@@ -7,7 +7,7 @@ import os
 
 import numpy as np
 
-DEFAULT_WEIGHTS = {"hgbr": 1.0, "dc": 0.0, "nb": 0.0, "elo": 0.0, "gbm": 0.0}
+DEFAULT_WEIGHTS = {"hgbr": 1.0, "dc": 0.0, "nb": 0.0, "elo": 0.0, "gbm": 0.0, "bayes": 0.0}
 _WEIGHTS_PATH = None
 
 
@@ -25,7 +25,7 @@ def learn_weights(samples: list[dict], tau: float = 0.0, phi: float = 1e9,
     审查 P1-16:成员动态化 —— 样本中实际出现的成员才参与优化;
     GBM 不可用(加载失败/预测失败)→ 完全从优化中移除,而非以 [0,0,0] 假装存在。
     """
-    names_all = ["hgbr", "dc", "nb", "elo", "gbm"]
+    names_all = ["hgbr", "dc", "nb", "elo", "gbm", "bayes"]
     present = [n for n in names_all if any(n in s for s in samples)]
     n = max(1, len(samples))
 
@@ -99,7 +99,7 @@ def load_weights(league_key: str, default: dict | None = None) -> dict:
             with open(path, encoding="utf-8") as _wf:
                 data = json.load(_wf)
             if league_key in data:
-                for k in ("hgbr", "dc", "nb", "elo", "gbm"):
+                for k in ("hgbr", "dc", "nb", "elo", "gbm", "bayes"):
                     if k in data[league_key]:
                         w[k] = float(data[league_key][k])
     except Exception:

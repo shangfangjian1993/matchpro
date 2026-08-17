@@ -113,6 +113,50 @@ def train_model(league_type: LeagueType, target_column: str = "goals",
             _prob_metrics = _holdout_prob_metrics(model, df, target_column)
         except Exception:
             _prob_metrics = {}
+        # 审查九 P0-2:Frozen Test Window —— 最近 10% 日期组,仅报告、绝不参与
+        # auto_select(选择只用 selection holdout,否则 holdout 失去 unbiased 性)。
+        _test_window = {}
+        try:
+            from app.models.utils import date_group_split
+            _trn_part, _tst_part = date_group_split(df, ratio=0.9)
+            if len(_tst_part) >= 50:
+                from app.replay.metrics import brier_score, log_loss, rps as _rps
+                from app.models.ensemble import match_probs as _mp
+                import numpy as _np
+                _pvecs, _acts = [], []
+                for _, _row in _tst_part.iterrows():
+                    _md = pd.Timestamp(_row["date"])
+                    _hist = _trn_part[_trn_part["date"] < _md] if "date" in _trn_part.columns else _trn_part
+                    if len(_hist) < 30:
+                        continue
+                    _rows = [{"date": _md, "home_team": _row["home_team"], "away_team": _row["away_team"],
+                              "home_goals": _np.nan, "away_goals": _np.nan, "goals": _np.nan,
+                              "league": _row.get("league"), "season": _row.get("season", "")},
+                             {"date": _md, "home_team": _row["away_team"], "away_team": _row["home_team"],
+                              "home_goals": _np.nan, "away_goals": _np.nan, "goals": _np.nan,
+                              "league": _row.get("league"), "season": _row.get("season", "")}]
+                    try:
+                        _f1 = model.prepare_features(pd.concat([_hist, pd.DataFrame([_rows[0]])], ignore_index=True))
+                        _f2 = model.prepare_features(pd.concat([_hist, pd.DataFrame([_rows[1]])], ignore_index=True))
+                        _cols = [col for col in getattr(model, "feature_columns_", []) if col in _f1.columns]
+                        _lh = float(model.model.predict(_f1[_cols])[-1])
+                        _la = float(model.model.predict(_f2[_cols])[-1])
+                        _pvecs.append(list(_mp(_lh, _la)))
+                    except Exception:
+                        continue
+                    _gh, _ga = _row.get("home_goals", 0) or 0, _row.get("away_goals", 0) or 0
+                    _acts.append(0 if _gh > _ga else (1 if _gh == _ga else 2))
+                if len(_pvecs) >= 50:
+                    _n = len(_pvecs)
+                    _test_window = {
+                        "n": _n,
+                        "log_loss": round(sum(log_loss(p2, a2) for p2, a2 in zip(_pvecs, _acts)) / _n, 5),
+                        "brier": round(sum(brier_score(p2, a2) for p2, a2 in zip(_pvecs, _acts)) / _n, 5),
+                        "rps": round(sum(_rps(p2, a2) for p2, a2 in zip(_pvecs, _acts)) / _n, 5),
+                        "note": "frozen-test-window(最近10%日期组,post-hoc参考,不参与模型选择)",
+                    }
+        except Exception:
+            _test_window = {}
         try:
             import hashlib as _hl
             import json as _json
@@ -143,6 +187,7 @@ def train_model(league_type: LeagueType, target_column: str = "goals",
                     "data_rows": len(df),
                     # ---- 口径标注(P0-3)----
                     "metric_sources": "poisson_loss=regression_holdout;log_loss/brier/rps=probability_holdout;cv=time_cv",
+                    "test_window": _test_window or None,
                     "split": "date-grouped-80-20",
                     "prob_holdout_n": int(_prob_metrics.get("n", 0) or 0),
                     "time_cv": (

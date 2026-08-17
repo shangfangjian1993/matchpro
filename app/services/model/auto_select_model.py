@@ -63,10 +63,14 @@ def main():
             # 并列分时选更新实验(id 大者 = 最新训练),避免"同指标旧版本"被选中
             if (cur is None or score < cur["score"] - 1e-12
                     or (abs(score - cur["score"]) <= 1e-12 and e.id > cur["id"])):
+                # 审查九 P0-2:选择只用 selection holdout 指标;frozen test window
+                # 仅随选中实验报告(active_meta),绝不参与选择 —— 否则 holdout 被
+                # 模型选择污染,不再是 unbiased test。
                 best[lt] = {"version": mv, "score": score, "id": e.id,
                             "poisson_loss": m["poisson_loss"],
                             "log_loss": m["log_loss"], "brier": m["brier"],
                             "rps": m["rps"],
+                            "test_window": m.get("test_window"),
                             "feature_version": getattr(e, "feature_version", None)}
         if not best:
             print("无历史实验,跳过")
@@ -78,10 +82,13 @@ def main():
         os.makedirs(models_dir, exist_ok=True)
         with open(out, "w", encoding="utf-8") as _of:
             json.dump(active, _of, ensure_ascii=False, indent=2)
+        meta = {"selected_by": "selection-holdout(poisson0.40+ll0.25+brier0.20+rps0.15)",
+                "test_window_policy": "frozen-test-window 仅报告,不参与选择",
+                "models": {lt: {k: (round(v, 5) if isinstance(v, float) else v)
+                                for k, v in info.items()}
+                           for lt, info in best.items()}}
         with open(meta_out, "w", encoding="utf-8") as _mf:
-            json.dump({lt: {k: (round(v, 5) if isinstance(v, float) else v)
-                            for k, v in info.items()}
-                       for lt, info in best.items()}, _mf, ensure_ascii=False, indent=2)
+            json.dump(meta, _mf, ensure_ascii=False, indent=2)
         print(f"✅ active_models.json 已写入 {out}")
         for lt, v in sorted(best.items()):
             print(f"   {lt}: v{v['version']} (score {v['score']:.4f} | "

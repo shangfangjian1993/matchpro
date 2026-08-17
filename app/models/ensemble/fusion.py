@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import numpy as np
 
-_GOAL_MEMBERS = ("hgbr", "dc", "nb", "elo")
+_GOAL_MEMBERS = ("hgbr", "dc", "nb", "elo", "bayes")
 
 
 def fuse_probs(member_probs_list: dict[str, tuple[float, float, float]],

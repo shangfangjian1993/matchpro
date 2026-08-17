@@ -64,3 +64,47 @@ def blend(league_id, cutoff_dt, probs) -> tuple[np.ndarray | None, dict | None]:
     out = out / s
     return out, {"method": "recent_freq_prior", "alpha": alpha, "window": window,
                  "freqs": [round(float(x), 4) for x in freqs]}
+
+
+def blend_matrix(league_id, cutoff_dt, probs, matrix):
+    """审查九 P0-3/P1-12:矩阵级 Regime 调整。
+
+    1) regime 检测 → 动态 α(稳定 0.85 / 剧烈 shift 0.55);
+    2) 目标 1X2 = α·P_model + (1-α)·近期频率;
+    3) IPF 调整 score matrix 使边缘 = 目标 1X2;
+    4) 所有输出(1X2/O-U/BTTS/Top5/xG)必须从返回矩阵重新导出。
+
+    返回 (调整后矩阵, 审计信息);无历史/禁用时返回 (None, None)。
+    """
+    cfg = _cfg()
+    if not cfg.get("enabled", True):
+        return None, None
+    window = int(cfg.get("window", 100))
+    min_history = int(cfg.get("min_history", 50))
+    freqs = recent_freqs(league_id, cutoff_dt, window, min_history)
+    if freqs is None:
+        return None, None
+    # 审查 P1-12:regime 检测 + 动态 α
+    try:
+        from app.prediction.regime import detect as _detect
+        from app.prediction.regime import dynamic_alpha as _dyn_alpha
+        _reg = _detect(league_id, cutoff_dt, window=window)
+        alpha = _dyn_alpha(_reg.get("shift_score", 0.0))
+    except Exception:
+        _reg, alpha = {}, float(cfg.get("alpha", 0.6))
+    p = np.asarray(probs, dtype=float)
+    target = alpha * p + (1.0 - alpha) * freqs
+    s = target.sum()
+    if s <= 0:
+        return None, None
+    target = target / s
+    try:
+        from app.prediction.regime import ipf_to_target
+        m2 = ipf_to_target(np.asarray(matrix, dtype=float), tuple(target))
+    except Exception:
+        return None, None
+    info = {"method": "ipf_regime_adjust", "alpha": round(alpha, 4),
+            "window": window, "freqs": [round(float(x), 4) for x in freqs],
+            "regime": _reg.get("regime"), "shift_score": _reg.get("shift_score"),
+            "target_1x2": [round(float(x), 4) for x in target]}
+    return m2, info

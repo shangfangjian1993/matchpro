@@ -15,7 +15,8 @@ from app.models.ensemble import (
 
 
 def compute_members(lam_h: float, lam_a: float, lam_eh: float, lam_ea: float,
-                    tau: float, phi: float, weights: dict) -> dict:
+                    tau: float, phi: float, weights: dict,
+                    lam_bh: float | None = None, lam_ba: float | None = None) -> dict:
     """四成员概率 + 比分矩阵 + Score Outputs + 融合 λ。
 
     lam_eh/lam_ea: ELO-Goal 成员 λ(已含伤停乘数)。
@@ -27,12 +28,15 @@ def compute_members(lam_h: float, lam_a: float, lam_eh: float, lam_ea: float,
         "dc": dc_probs(lam_h, lam_a, tau),
         "nb": nb_probs(lam_h, lam_a, phi),
         "elo": match_probs(lam_eh, lam_ea),
+        # 审查九 P1-10:层次贝叶斯成员(联赛先验×攻防收缩;无样本=先验)
+        "bayes": match_probs(lam_bh or lam_h, lam_ba or lam_a),
     }
     matrices = {
         "hgbr": _pois_matrix(lam_h, lam_a),
         "dc": _dc_matrix(lam_h, lam_a, tau),
         "nb": _nb_matrix(lam_h, lam_a, phi),
         "elo": _pois_matrix(lam_eh, lam_ea),
+        "bayes": _pois_matrix(lam_bh or lam_h, lam_ba or lam_a),
     }
     fused_matrix = fuse_score_matrix(matrices, weights)
     score_out = score_outputs(fused_matrix)

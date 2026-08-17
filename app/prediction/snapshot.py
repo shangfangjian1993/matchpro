@@ -39,7 +39,9 @@ def save(league, home_team, away_team, match_dt, match_date, result,
         raise RuntimeError("快照失败:无法定位模型文件路径(不可复现)")
     with open(_mpath, "rb") as _mf:
         _model_hash = hashlib.sha256(_mf.read()).hexdigest()[:64]
-    _data_hash = hashlib.sha256(
+    # 审查 P0-4:data_hash = 参与预测历史记录的内容哈希(任何内容修改都可见);
+    # hist_max_id/updated 保留为辅助诊断字段
+    _data_hash = data_content_hash(hist_df) or hashlib.sha256(
         f"{hist_max_id}|{hist_max_updated}|{home_team}|{away_team}".encode()).hexdigest()[:64]
 
     # ── 阶段 2(非核心诊断):失败仅 warning ────────────────────────────────
@@ -104,11 +106,46 @@ def save(league, home_team, away_team, match_dt, match_date, result,
     except OSError:
         _ens_hash = None
 
+    # ── 审查九 P1-6:四 Cutoff 时间体系 ────────────────────────────
+    # prediction_cutoff:预测执行时刻;data/feature_cutoff:实际参与预测的
+    # 历史数据截止(严格早于该场);model_cutoff:模型训练截止(artifact 元数据)
+    try:
+        _data_cutoff = str(pd.to_datetime(hist_df["date"]).max().date()) if len(hist_df) else None
+    except Exception:
+        _data_cutoff = None
+    _model_cutoff = None
+    try:
+        _art_path = _mpath + ".json"
+        if os.path.exists(_art_path):
+            with open(_art_path, encoding="utf-8") as _af:
+                _model_cutoff = json.load(_af).get("trained_at")
+    except Exception:
+        _model_cutoff = None
+    try:
+        from datetime import datetime as _dt
+        _pred_cutoff = _dt.now().isoformat(timespec="seconds")
+    except Exception:
+        _pred_cutoff = None
+
+    # ── 审查九 P1-7:预测管线版本(逻辑代码哈希,非仅模型/特征哈希)──
+    try:
+        from app.prediction.versions import PIPELINE_VERSION as _pv
+        from app.prediction.versions import pipeline_hash as _ph
+        _pipeline_ver, _pipeline_hash = _pv, _ph()
+    except Exception:
+        _pipeline_ver, _pipeline_hash = None, None
+
     _snapshot = {
         "data_version": _data_hash[:12],
         "feature_version": _feature_ver,
         "model_version": _model_hash[:12],
         "evaluation_mode": evaluation_mode,
+        "prediction_cutoff": _pred_cutoff,
+        "data_cutoff": _data_cutoff,
+        "feature_cutoff": _data_cutoff,
+        "model_cutoff": _model_cutoff,
+        "pipeline_version": _pipeline_ver,
+        "pipeline_hash": _pipeline_hash,
         "model_set": {
             "goal": {"version": os.path.basename(_mpath).replace(".pkl", ""),
                      "sha256": _model_hash},
@@ -136,6 +173,7 @@ def save(league, home_team, away_team, match_dt, match_date, result,
                              if k in ("hgbr", "dc", "nb", "elo", "gbm")},
         "dc_tau": _dcp.get("tau"), "nb_phi": _dcp.get("phi"),
         "calibration": _cal_info,
+        "prior_blend": result.get("prior_blend"),
     }
     _probs = {
         "home_win": result["home_win_probability"],
@@ -179,6 +217,22 @@ def save(league, home_team, away_team, match_dt, match_date, result,
             setattr(_existing, _k, _v)
     # ── 阶段 4(核心):写库 —— 失败 raise,保证 预测+快照 原子 ───────────
     db.session.commit()
+
+def data_content_hash(hist_df) -> str:
+    """审查 P0-4:数据内容哈希 —— 对实际参与预测的历史记录内容做聚合哈希。
+
+    原 data_hash 仅基于 hist_max_id|hist_max_updated|teams:历史中任何一条
+    记录被修改(比分/日期/球队)而 id/updated 不变时,哈希不变 → 快照误判
+    "数据未变"。内容哈希对每行 (date|home|away|hg|ga) 拼串后 sha256,
+    任何参与预测的历史内容变化都会改变哈希。
+    """
+    cols = [col for col in ("date", "home_team", "away_team", "home_goals", "away_goals")
+            if col in hist_df.columns]
+    if not cols:
+        return ""
+    s = hist_df[cols].astype(str).agg("|".join, axis=1).str.cat(sep="\n")
+    return hashlib.sha256(s.encode("utf-8")).hexdigest()[:64]
+
 
 def extract_feature_rows(feat, feature_columns):
     """从经排序的预测特征矩阵提取主/客队预测行特征(审查 P0-5/三十)。
