@@ -277,6 +277,37 @@ def predict_match(league_type: LeagueType, home_team: str, away_team: str,
     _degraded = _degraded or _cal_degraded
     result["prediction_status"] = "degraded" if _degraded else "ok"
 
+    # ── V7-1:近期环境先验混合(审查七;2026 高平局赛季修复)──
+    # P_final = α·P_model + (1-α)·截止该场最近 window 场实际频率。
+    # 失败仅降级(不影响预测);审计信息写入 result。
+    try:
+        from app.prediction.prior_blend import blend as _prior_blend
+        _blended, _blend_info = _prior_blend(
+            league.id, match_dt,
+            [result["home_win_probability"], result["draw_probability"],
+             result["away_win_probability"]])
+        if _blended is not None:
+            _hw2, _dr2, _aw2 = (float(x) for x in _blended)
+            result["home_win_probability"] = round(_hw2, 4)
+            result["draw_probability"] = round(_dr2, 4)
+            result["away_win_probability"] = round(_aw2, 4)
+            result["prior_blend"] = _blend_info
+            # 置信度基于最终(混合后)概率重算
+            try:
+                import math as _math
+                _entropy = -sum(_p * _math.log(_p)
+                                for _p in (_hw2, _dr2, _aw2) if _p > 0)
+                result["confidence"] = round(max(_hw2, _dr2, _aw2), 4)
+                result["confidence_score"] = round(
+                    max(_hw2, _dr2, _aw2) * _agreement * _data_quality, 4)
+                result["prediction_entropy"] = round(_entropy, 4)
+            except Exception:
+                pass
+    except Exception as _pe:
+        logger.warning("prior blend 失败(降级为未混合概率): %s", _pe)
+        _degraded = True
+        result["prediction_status"] = "degraded" if _degraded else "ok"
+
     # Snapshot(冻结最终输出 + 输入 + 全版本)
     snapshot_service.save(league, home_team, away_team, match_dt, match_date, result,
                           home_lambda, away_lambda, _att_diff, hist_df, model, _pred_df,

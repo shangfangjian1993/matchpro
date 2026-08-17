@@ -1,3 +1,13 @@
+prediction:
+  prior_blend:
+    # 审查七 V7-1:近期环境先验混合(2026 高平局赛季修复)。
+    # P_final = α·P_model + (1-α)·近期实际频率(截止该场最近 window 场)
+    # 离线验证(W=100, α=0.6):2026 ll 1.1254→1.0952, ECE 0.127→0.044;
+    # 2025 不退化(ll 0.9949→0.9916, ECE 0.042)。2026-08 上线。
+    enabled: true
+    window: 100
+    alpha: 0.6
+    min_history: 50
 ensemble:
   default_weights:
     hgbr: 1.0
