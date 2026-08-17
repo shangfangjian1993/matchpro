@@ -117,7 +117,8 @@ if __name__ == "__main__":
     print(f"  Strong: {elo.rating('Strong FC'):.1f} | Weak: {elo.rating('Weak FC'):.1f}")
 
 
-def with_elo_features(df, is_national: bool = False):
+def with_elo_features(df, is_national: bool = False, dyn_k: bool | None = None):
+    """dyn_k:None 时读 configs/models.yaml elo_goal.dyn_k(默认 True)。"""
     """为比赛 DataFrame 附加赛前多维 ELO 特征(防泄漏:每场取赛前值)。
 
     输出列:
@@ -128,9 +129,15 @@ def with_elo_features(df, is_national: bool = False):
     """
     import numpy as np
 
-    overall = EloSystem()
-    attack = EloSystem(k=8.0)
-    defense = EloSystem(k=8.0)
+    if dyn_k is None:
+        try:
+            from app.core.config import load_yaml
+            dyn_k = bool((load_yaml("models.yaml").get("elo_goal") or {}).get("dyn_k", True))
+        except Exception:
+            dyn_k = True
+    overall = EloSystem(dyn_k=dyn_k)
+    attack = EloSystem(k=8.0, dyn_k=dyn_k)
+    defense = EloSystem(k=8.0, dyn_k=dyn_k)
     df = df.sort_values("date").reset_index(drop=True)
     # 列数组迭代(替代 iterrows:避免逐行 pandas 行对象开销,~3x 提速;
     # ELO 更新是序列依赖的,无法完全向量化)

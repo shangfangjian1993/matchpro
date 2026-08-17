@@ -16,7 +16,10 @@ def set_weights_path(path: str | None):
     _WEIGHTS_PATH = path
 
 
-def learn_weights(samples: list[dict], tau: float = 0.0, phi: float = 1e9) -> dict:
+def learn_weights(samples: list[dict], tau: float = 0.0, phi: float = 1e9,
+                 shrinkage: float = 0.15, prior: dict | None = None) -> dict:
+    """shrinkage:向先验(默认 hgbr 主导)的 L2 收缩 —— 防止小样本 OOF 下
+    学到极端权重(hgbr=0 / nb=0.5 之类),把"概率收缩"式退化拉回平衡。"""
     """滚动学习:SLSQP 优化 w≥0、Σw=1 最小化 log-loss(§4)。
 
     审查 P1-16:成员动态化 —— 样本中实际出现的成员才参与优化;
@@ -25,6 +28,21 @@ def learn_weights(samples: list[dict], tau: float = 0.0, phi: float = 1e9) -> di
     names_all = ["hgbr", "dc", "nb", "elo", "gbm"]
     present = [n for n in names_all if any(n in s for s in samples)]
     n = max(1, len(samples))
+
+    _prior = np.array([(prior or {}).get(name, 1.0 if name == "hgbr" else 0.0)
+                       for name in present], dtype=float)
+    _prior = _prior / _prior.sum()
+
+    def _nll_pure(w):
+        ll = 0.0
+        for s in samples:
+            p = np.zeros(3)
+            for i, name in enumerate(present):
+                p += w[i] * np.asarray(s[name])
+            p = np.clip(p, 1e-12, None)
+            p = p / p.sum()
+            ll -= math.log(p[s["actual"]])
+        return ll / n
 
     def _nll(w):
         ll = 0.0
@@ -35,7 +53,11 @@ def learn_weights(samples: list[dict], tau: float = 0.0, phi: float = 1e9) -> di
             p = np.clip(p, 1e-12, None)
             p = p / p.sum()
             ll -= math.log(p[s["actual"]])
-        return ll / n
+        ll = ll / n
+        # 审查十二:小样本权重过拟合 → L2 收缩向先验(默认 hgbr 主导)
+        if shrinkage > 0 and len(present) > 1:
+            ll += shrinkage * float(np.mean((w - _prior) ** 2))
+        return ll
 
     # 只有 1 个成员时无需优化
     if len(present) < 2:
@@ -55,8 +77,10 @@ def learn_weights(samples: list[dict], tau: float = 0.0, phi: float = 1e9) -> di
     out = {name: 0.0 for name in names_all}
     for i, name in enumerate(present):
         out[name] = float(w[i])
-    out["log_loss"] = float(_nll(w))
+    # 报告的 log_loss 用纯 NLL(不含收缩惩罚项)
+    out["log_loss"] = float(_nll_pure(w))
     out["n"] = n
+    out["shrinkage"] = shrinkage
     return out
 
 

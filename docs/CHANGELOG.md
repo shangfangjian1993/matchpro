@@ -34,3 +34,13 @@
 - 清理:calibration 统一 artifacts/calibration/;hyperopt_best.json → artifacts/experiments/hyperopt/best.json;
   README 路径修正(artifacts/<league>/<version>.pkl、runtime/active_models.json)、宣称降级
   ("100% 重放""2,000 场验证"改为目标描述)、Feature 6 家族标注为 4 实现 + 2 保留
+
+## 2026-08-17 V7 模型研究阶段(基准集 + A/B 门禁驱动)
+- 基准集 v1:2006 历史快照(5 联赛 × ~400,actual 回填),benchmark 报告入库;
+  诊断出英超 2026 高平局赛季(平局 32% vs 历史 21%)退化
+- V7-1 近期环境先验混合:P=0.6·模型+0.4·近期频率(2026 ll 1.125→1.095,ECE 0.127→0.044)
+- V7-2 Dynamic ELO:新队 K 翻倍快速收敛(PL ll 1.058→1.047,ECE 0.082→0.063);
+  配套:特征版本哈希覆盖 ELO 实现、Experiment.fv 改用 logical_version(防分布失配)
+- V7-3 H2H 默认关闭:factory 消费开关,开关纳入版本(PL ECE 0.063→0.031 减半)
+- V7-4 OOF 权重重学(新特征):德甲 elo 0.676/gbm 0.276,法甲 nb 0.504
+- 完整融合链路 A/B 评估脚本(4 成员+GBM→fuse,与线上同口径)

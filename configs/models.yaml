@@ -27,6 +27,9 @@ negbin:
 elo_goal:
   base: 1.6
   spread: 1.0
+  # V7-2:Dynamic K —— A/B(同批基准):仅 PL 改善(ll 1.058→1.045),其余 4 联赛
+  # ll 退化(西甲+0.015/德甲+0.030/意甲+0.016/法甲+0.026,与权重无关) → 回滚 false
+  dyn_k: false
 training:
   cv_folds: 5
   holdout_fraction: 0.2
@@ -98,4 +101,5 @@ leagues:
       validation_fraction: 0.15
       random_state: 42
 features:
-  h2h: false
+  # V7-3:H2H —— A/B 同批基准:仅 PL 改善(ECE 0.063→0.031),其余联赛 ll 退化 → 回滚 true
+  h2h: true
