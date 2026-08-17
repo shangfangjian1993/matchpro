@@ -17,9 +17,13 @@ def set_weights_path(path: str | None):
 
 
 def learn_weights(samples: list[dict], tau: float = 0.0, phi: float = 1e9,
-                 shrinkage: float = 0.15, prior: dict | None = None) -> dict:
+                 shrinkage: float = 0.15, prior: dict | None = None,
+                 max_weight: float = 0.7) -> dict:
     """shrinkage:向先验(默认 hgbr 主导)的 L2 收缩 —— 防止小样本 OOF 下
-    学到极端权重(hgbr=0 / nb=0.5 之类),把"概率收缩"式退化拉回平衡。"""
+    学到极端权重(hgbr=0 / gbm=1 之类),把"概率收缩"式退化拉回平衡。
+
+    max_weight:单成员权重上限 —— GBM 等分类器概率过度自信时 ll 最优但
+    校准差,全押单一成员丧失 Ensemble 意义(审查九 P1-5 配套)。"""
     """滚动学习:SLSQP 优化 w≥0、Σw=1 最小化 log-loss(§4)。
 
     审查 P1-16:成员动态化 —— 样本中实际出现的成员才参与优化;
@@ -69,7 +73,7 @@ def learn_weights(samples: list[dict], tau: float = 0.0, phi: float = 1e9,
     from scipy.optimize import minimize
     w0 = np.array([1.0 if name == "hgbr" else 0.0 for name in present])
     res = minimize(_nll, w0, method="SLSQP",
-                   bounds=[(0.0, 1.0)] * len(present),
+                   bounds=[(0.0, max_weight)] * len(present),
                    constraints={"type": "eq", "fun": lambda w: w.sum() - 1.0},
                    options={"maxiter": 200, "ftol": 1e-9})
     w = np.clip(res.x, 0.0, 1.0)
