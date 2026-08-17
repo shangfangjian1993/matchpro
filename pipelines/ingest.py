@@ -16,7 +16,9 @@ def main():
     from app.services.cli import add_log_level_arg, make_parser, setup_logging
     ap = make_parser("Pipeline ingest:同步赛果/xG/赛程/伤停 + 可选 FBref enrich")
     ap.add_argument("--enrich-soccerdata", action="store_true",
-                    help="用 SoccerData(FBref)回填比赛扩展统计列")
+                    help="用 SoccerData(FBref)回填统计(FBref 在数据中心 IP 有验证码,建议 NAS) ")
+    ap.add_argument("--enrich-apifootball", action="store_true",
+                    help="用 api-football(正式 API,无验证码)回填统计;推荐替代 FBref")
     ap.add_argument("--league", default=None,
                     help="enrich 联赛(默认全部 5 大联赛)")
     ap.add_argument("--season", default="2024",
@@ -31,6 +33,41 @@ def main():
 
     if args.enrich_soccerdata:
         _run_enrich(args.league, args.season)
+    if args.enrich_apifootball:
+        _run_enrich_apifootball(args.league, args.season)
+
+
+def _run_enrich_apifootball(league: str | None, season: str):
+    from app.core.config import LeagueType
+    from app.api.db import League, Match, init_db, session_scope
+    from app.data.sources.api_football_stats import available as af_available
+    from app.data.sources.api_football_stats import enrich_matches as af_enrich
+
+    if not af_available():
+        print("⚠️ 未配置 API_FOOTBALL_KEY,跳过 api-football 回填")
+        return
+    init_db()
+    leagues = [LeagueType(league)] if league else [
+        LeagueType.PREMIER_LEAGUE, LeagueType.LA_LIGA, LeagueType.BUNDESLIGA,
+        LeagueType.SERIE_A, LeagueType.LIGUE_1]
+    with session_scope():
+        for lt in leagues:
+            lg = League.query.filter_by(league_type=lt.value).first()
+            if lg is None:
+                continue
+            rows = (Match.query.filter_by(league_id=lg.id, match_status="finished")
+                    .filter((Match.home_shots.is_(None)) | (Match.home_possession.is_(None)))
+                    .order_by(Match.match_date.desc()).limit(500).all())
+            print(f"  {lt.value}: 待回填 {len(rows)} 场(api-football)")
+            if not rows:
+                continue
+            try:
+                res = af_enrich(lt, rows, season=season)
+                print(f"    → 更新 {res['updated']} | 未匹配 {res['unmatched']} | "
+                      f"错误 {res['errors']} | 调用 {res['calls']}(free 100/天)")
+            except Exception as e:
+                print(f"    ✗ {type(e).__name__}: {e}")
+    print("✅ [pipeline] api-football 统计回填完成")
 
 
 def _run_enrich(league: str | None, season: str):
