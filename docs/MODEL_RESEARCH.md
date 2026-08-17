@@ -107,3 +107,16 @@
 - P1-11 Lineup/Expected Minutes 结构(阵容强度向量)
 - P1-12 Regime Detector(平局/进球/主场漂移 + 动态 α)
 - Failure Taxonomy:degraded_components/failure_codes
+
+## V7.5-2:Bayesian 两阶段收缩 + Metrics 深化(2026-08-17)
+
+- Bayesian 深化(审查二十八):Global→League→Team 历史先验(κ1=15)→
+  近期状态(κ2=8,指数时间衰减半衰期 200 场)→ attack/defense posterior;
+  主客场分离(主队主场进攻侧/客队客场进攻侧,防守全侧)
+- OOF v6 验证(600 样本):bayes 权重升至 0.255-0.348,4/5 联赛 ll 再降
+  (PL 0.9792→0.9706, 西甲 0.9921→0.9811, 德甲 1.0331→1.0200,
+   法甲 1.0501→1.0449)
+- Metrics 深化(审查二十二/三十四):calibration slope/intercept、sharpness、
+  Brier decomposition、logloss_by_bucket、score_log_likelihood(比分分布 LL);
+  replay summarize 输出全部扩展指标(1998 快照:slope 1.088、sharpness 0.525、
+  reliability 0.010)
