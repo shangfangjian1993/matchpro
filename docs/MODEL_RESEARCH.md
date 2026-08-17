@@ -90,3 +90,20 @@
 - Lineup/Expected Minutes 阵容强度模型
 - Uncertainty 深化(entropy/agreement 进 calibration)
 - 2000 场滚动回测与 ensemble 权重评估统一(回测当前为单模型口径)
+
+## V7.5:第九轮审查落地(2026-08-17,P0×4 + P1×8)
+
+- P0-1 统一 PredictionEngine:生产/Walk-forward/OOF 同一代码路径(service=编排、
+  context=数据、engine=推理、uncertainty=不确定性)
+- P0-2 Frozen Test Window:最近 10% 日期组仅报告不参与模型选择(防选择泄漏)
+- P0-3 Score Matrix 与 1X2 统一:Regime 矩阵级 IPF 调整,所有输出同源
+- P0-4 data_hash 内容化:参与预测历史记录的内容哈希
+- P1-5 OOF 600(6 段×120,下限 300)
+- P1-6 四 Cutoff(prediction/data/feature/model)入快照
+- P1-7 pipeline_hash(源码聚合)+ pipeline_version
+- P1-8 Service 拆分(PredictionOrchestrator 结构)
+- P1-9 Ensemble Trainer 拆分(5 模块包)
+- P1-10 Bayesian Team Strength(经验贝叶斯收缩成员,bayes)
+- P1-11 Lineup/Expected Minutes 结构(阵容强度向量)
+- P1-12 Regime Detector(平局/进球/主场漂移 + 动态 α)
+- Failure Taxonomy:degraded_components/failure_codes

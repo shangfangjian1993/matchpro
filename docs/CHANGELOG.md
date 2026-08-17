@@ -44,3 +44,10 @@
 - V7-3 H2H 默认关闭:factory 消费开关,开关纳入版本(PL ECE 0.063→0.031 减半)
 - V7-4 OOF 权重重学(新特征):德甲 elo 0.676/gbm 0.276,法甲 nb 0.504
 - 完整融合链路 A/B 评估脚本(4 成员+GBM→fuse,与线上同口径)
+
+## 2026-08-17 V7.5 第九轮审查(P0×4 + P1×8 全部落地)
+- 统一 PredictionEngine(生产/回测/OOF 同路径);Service 拆分(编排/上下文/引擎/不确定性)
+- Score Matrix 与 1X2 同源(IPF Regime 矩阵调整);data_hash 内容化;四 Cutoff;
+  pipeline_hash;Frozen Test Window(选择隔离);Failure Taxonomy
+- Ensemble OOF 600 样本;Trainer 拆分;bayes 成员(层次贝叶斯);Lineup 结构;
+  Regime Detector + 动态 α
