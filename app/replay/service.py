@@ -120,7 +120,7 @@ def summarize() -> dict:
         gh, ga = s.actual_home_goals or 0, s.actual_away_goals or 0
         acts.append(0 if gh > ga else (1 if gh == ga else 2))
     n = len(done)
-    return {
+    out = {
         "count": n,
         "accuracy": round(accuracy(pvecs, acts), 4),
         "log_loss": round(sum(s.log_loss or 0 for s in done) / n, 4),
@@ -128,3 +128,25 @@ def summarize() -> dict:
         "rps": round(sum(rps(p, a) for p, a in zip(pvecs, acts)) / n, 4),
         "ece": round(ece(pvecs, acts), 4),
     }
+    # 审查九 二十二/三十四:扩展指标(校准斜率/锐度/Brier 分解/比分分布 LL)
+    try:
+        from app.replay.metrics import extended_metrics
+        _smat, _scores = [], []
+        for s in done:
+            _ev = json.loads(s.snapshot_json or "{}")
+            _m = _ev.get("score_matrix")
+            if _m:
+                _smat.append(_m)
+                _scores.append((s.actual_home_goals or 0, s.actual_away_goals or 0))
+        _ext = extended_metrics(pvecs, acts,
+                                _smat if len(_smat) == len(acts) else None,
+                                _scores if len(_scores) == len(acts) else None)
+        out["calibration_slope"] = _ext["calibration_slope"]
+        out["calibration_intercept"] = _ext["calibration_intercept"]
+        out["sharpness"] = _ext["sharpness"]
+        out["brier_decomposition"] = _ext["brier_decomp"]
+        out["score_log_likelihood_mean"] = _ext.get("score_log_likelihood_mean")
+        out["logloss_by_bucket"] = _ext["logloss_by_bucket"]
+    except Exception:
+        pass
+    return out
