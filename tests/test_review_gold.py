@@ -248,3 +248,21 @@ def test_ipf_matrix_matches_target():
     dr = np.trace(m2)
     aw = m2[np.triu_indices_from(m2, 1)].sum()
     assert abs(hw - 0.42) < 1e-6 and abs(dr - 0.32) < 1e-6 and abs(aw - 0.26) < 1e-6
+
+
+def test_learn_weights_rejects_raw_oof_samples():
+    """回归防护:原始 OOF 样本(lam 键)不得被当作成员概率样本。
+
+    learn_weights 的 present 判定用 'name in s'(子串),若传入
+    {"hgbr_lam_h": ...} 会命中 "hgbr" 但 s["hgbr"]=None → SLSQP 错乱
+    (曾产出 gbm=1.0 假象)。成员概率样本必须经 member_builder 构建。
+    """
+    from app.services.training.ensemble.member_builder import build_member_samples
+    raw = [{"hgbr_lam_h": 1.5, "hgbr_lam_a": 1.2, "att_diff": 10.0,
+            "bayes_lam_h": 1.4, "bayes_lam_a": 1.3,
+            "home_goals": 2, "away_goals": 1, "actual": 0, "gbm": [0.5, 0.3, 0.2]}]
+    samples = build_member_samples(raw, tau=0.0, phi=1e9)
+    assert len(samples) == 1
+    for k in ("hgbr", "dc", "nb", "elo", "bayes", "gbm"):
+        assert k in samples[0], f"成员 {k} 缺失"
+        assert len(samples[0][k]) == 3
