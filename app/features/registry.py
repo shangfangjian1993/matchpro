@@ -78,6 +78,7 @@ def logical_version() -> str:
     哈希 —— 避免"接了新家族但 logical_version 不变"的版本盲区。
     """
     import hashlib as _hl
+    import json as _json
 
     from app.features import attack_defense, form, h2h, strength
     parts = [m.version() for m in (strength, attack_defense, form, h2h)]
@@ -88,6 +89,15 @@ def logical_version() -> str:
                 parts.append(_mod.version())
         except ImportError:
             pass  # 未实现:不参与版本
+    # 审查七 V7-3:特征开关(h2h)属于实现状态 —— 开关变化必须改变版本,
+    # 否则旧模型(带 h2h 列)会被当成与新特征兼容 → 预测列失配
+    try:
+        from app.core.config import load_yaml
+        _fc = load_yaml("models.yaml").get("features") or {}
+        parts.append("features=" + _hl.sha256(
+            _json.dumps(_fc, sort_keys=True).encode()).hexdigest()[:8])
+    except Exception:
+        pass
     return _hl.sha256("|".join(parts).encode()).hexdigest()[:12]
 
 

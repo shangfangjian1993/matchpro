@@ -98,4 +98,4 @@ leagues:
       validation_fraction: 0.15
       random_state: 42
 features:
-  h2h: true
+  h2h: false

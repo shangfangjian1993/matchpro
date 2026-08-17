@@ -24,7 +24,15 @@ def compute_all(df: pd.DataFrame,
     long, _ = build_long_table(out)
     out = compute_attack_defense(out, long)  # 02 Attack/Defense
     out = compute_form(out, long)             # 03 Form & Momentum
-    out = compute_h2h(out)                    # 06 Opponent Interaction
+    # 审查七 V7-3:H2H 默认关闭(configs/models.yaml features.h2h)——
+    # 样本少+阵容/教练变化大,2021 交手≠2026 交手;特殊场景再开
+    try:
+        from app.core.config import load_yaml
+        _h2h_enabled = (load_yaml("models.yaml").get("features") or {}).get("h2h", True)
+    except Exception:
+        _h2h_enabled = True
+    if _h2h_enabled:
+        out = compute_h2h(out)                # 06 Opponent Interaction
     for metric in metric_columns:
         out = compute_metric_rolling(out, metric, metric)
     for metric in side_metric_columns:
