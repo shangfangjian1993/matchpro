@@ -14,6 +14,9 @@ joblib>=1.4
 PyYAML>=6.0
 psycopg2-binary>=2.9
 
+# 可选数据源(SoccerData/FBref enrich;未安装时自动降级)
+soccerdata>=1.9
+
 # 开发/测试依赖
 httpx>=0.27          # FastAPI TestClient
 ruff>=0.6            # lint
