@@ -23,9 +23,18 @@ def fit_tau(samples):
     return float(best_t)
 
 
-def optimize(samples, tau, phi, shrinkage: float = 0.15):
-    """SLSQP 学习权重(动态成员,shrinkage 向 hgbr 先验收缩)。"""
+def optimize(oof_samples, tau, phi, shrinkage: float = 0.15):
+    """SLSQP 学习权重(动态成员,shrinkage 向 hgbr 先验收缩)。
+
+    注意:learn_weights 必须接收**成员概率样本**(member_builder 产出)——
+    原始 OOF 样本(hgbr_lam_h 等)传给 learn_weights 会导致 present 判定
+    用子串包含('hgbr' in 'hgbr_lam_h')命中但 s['hgbr']=None,
+    SLSQP 路径错乱(曾产出 gbm=1.0 的假象)。
+    """
+    from .member_builder import build_member_samples
+
     from app.models.ensemble import fit_nb_phi, learn_weights
-    phi = fit_nb_phi(samples) if phi is None else phi
+    phi = fit_nb_phi(oof_samples) if phi is None else phi
+    samples = build_member_samples(oof_samples, tau, phi)
     w = learn_weights(samples, tau, phi, shrinkage=shrinkage)
-    return phi, w
+    return phi, w, samples

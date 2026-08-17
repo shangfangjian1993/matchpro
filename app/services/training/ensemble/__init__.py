@@ -12,7 +12,6 @@ def run_all(leagues, verbose: bool = True) -> dict:
     from app.core.paths import ARTIFACTS_DIR as _AD
 
     from .artifact_writer import write_all
-    from .member_builder import build_member_samples
     from .weight_optimizer import fit_tau, optimize
 
     _ens_dir = str(_AD / "ensemble")
@@ -22,9 +21,8 @@ def run_all(leagues, verbose: bool = True) -> dict:
         if not oof_samples:
             continue
         tau = fit_tau(oof_samples)
-        phi, w = optimize(oof_samples, tau, phi=None, shrinkage=0.15)
+        phi, w, samples = optimize(oof_samples, tau, phi=None, shrinkage=0.15)
         params_out[lt.value] = {"tau": tau, "phi": phi}
-        samples = build_member_samples(oof_samples, tau, phi)
         # optimize 内已 learn_weights(shrinkage);samples 用于记录
         weights_out[lt.value] = {k: round(v, 4) for k, v in w.items()
                                  if k not in ("log_loss", "n", "shrinkage")}
