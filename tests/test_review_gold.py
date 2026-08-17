@@ -170,3 +170,27 @@ def test_learn_weights_removes_missing_member():
     assert w["gbm"] == 0.0
     assert abs(sum(w[k] for k in ("hgbr", "dc", "nb", "elo")) - 1.0) < 1e-6
     assert w["nb"] == 0.0
+
+
+# ── 三十二:特征版本不变量 ────────────────────────────────────────────────
+def test_logical_version_stable_and_includes_switch():
+    """logical_version 两次调用一致,且包含特征开关状态(h2h)。
+
+    审查七 V7-3:开关变化必须改变版本 —— 否则旧模型(带 h2h 列)会被
+    当成与新特征兼容,预测时列失配。
+    """
+    from app.features.registry import logical_version
+    v1 = logical_version()
+    v2 = logical_version()
+    assert v1 == v2
+    # 手动复现(含 features 段)必须与函数一致 —— 证明开关参与版本计算
+    import hashlib as _hl
+    import json as _json
+    from app.core.config import load_yaml
+    from app.features import attack_defense, form, h2h, strength
+    parts = [m.version() for m in (strength, attack_defense, form, h2h)]
+    fc = load_yaml("models.yaml").get("features") or {}
+    parts.append("features=" + _hl.sha256(
+        _json.dumps(fc, sort_keys=True).encode()).hexdigest()[:8])
+    manual = _hl.sha256("|".join(parts).encode()).hexdigest()[:12]
+    assert v1 == manual, "logical_version 未纳入特征开关状态(实现级版本失效)"
