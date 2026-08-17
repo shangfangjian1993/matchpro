@@ -120,3 +120,20 @@
   Brier decomposition、logloss_by_bucket、score_log_likelihood(比分分布 LL);
   replay summarize 输出全部扩展指标(1998 快照:slope 1.088、sharpness 0.525、
   reliability 0.010)
+
+## V7.6:审查十落地(概率流水线封死 + 三级异常 + 不变量,2026-08-17)
+
+- P0-1 Engine 三级异常:核心失败(CORE_PREDICTION_FAILURE/INVALID_LAMBDA/
+  INVALID_PROBABILITY/ENSEMBLE_FAILURE/SCORE_MATRIX_FAILURE)直接 raise,
+  不生成正式 Snapshot,绝不静默退回纯 HGBR;可选成员(GBM/校准/先验)降级;
+  信息级(FEATURE_IMPACT)不影响
+- P0-2/P0-3 概率流水线顺序(严格):
+  Raw→Ensemble→IPF(Regime)→Final Matrix→统一导出→Calibration(校准
+  **最终输出**)→二次 IPF(校准后 1X2 回写矩阵)→唯一输出源
+- P1-1 STRENGTH_COMPRESSED 改用净胜球 latent strength(攻击-防守综合)
+- P1-2 Regime shift 加权复合 + 单维 cap 0.35(PL 0.605→0.299)
+- P1-4 Probability Invariants:向量/矩阵/边缘/xG/Top5 统一校验,
+  预测完成时违规 → 核心失败
+- P1-5 context_weight 保持关闭(待严格 OOF A/B)
+- 校准器重拟合:拟合对象从"模型融合概率"改为"完整链路最终概率
+  (IPF 后校准前)"—— ECE/Brier 与线上最终输出同构

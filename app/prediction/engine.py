@@ -266,6 +266,9 @@ class PredictionEngine:
                 result["draw_probability"] = round(_dr2, 4)
                 result["away_win_probability"] = round(_aw2, 4)
                 result["prior_blend"] = _blend_info
+                # 审查十 P0-2 配套:校准前最终概率(校准器拟合对象 = 最终输出)
+                result["_pre_calibration_1x2"] = [round(_hw2, 6), round(_dr2, 6),
+                                                  round(_aw2, 6)]
                 _unc2 = recompute_after_adjust((_hw2, _dr2, _aw2),
                                                _agreement, _data_quality)
                 result["confidence"] = _unc2["confidence"]
