@@ -42,3 +42,6 @@ Thumbs.db
 # Redis 持久化文件(本地 redis-server 生成)
 dump.rdb
 *.rdb
+# 崩溃转储/抓取缓存
+core
+downloaded_files/
