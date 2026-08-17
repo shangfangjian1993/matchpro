@@ -1,3 +1,7 @@
+import pytest
+
+pytestmark = pytest.mark.db
+
 """训练最小测试(冒烟):单联赛训练 + 实验记录。"""
 import pytest
 

@@ -73,6 +73,8 @@ python -m app.services.training.learn_ensemble_weights
 python -m app.services.model.auto_select_model
 # GBM 分类成员(Outcome Engine)
 python -m app.services.training.gbm_member
+# Walk-Forward 防泄漏回测门禁(统一 PredictionEngine;报告 → artifacts/experiments/backtest/)
+python pipelines/backtest_gate.py --sample 400 --retrain-every 100
 # 超参搜索 / 特征重要性
 python -m app.services.training.hyperopt && python -m app.services.model.feature_importance
 ```

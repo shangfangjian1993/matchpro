@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install production deps
+        run: pip install -r requirements.txt
+
+      - name: Install dev deps (ruff)
+        run: pip install ruff pytest
+
+      - name: Lint (ruff F-class)
+        run: ruff check app pipelines tests --select F
+
+      - name: Compile check
+        run: python -m compileall -q app pipelines tests
+
+      - name: Tests (ignore DB-dependent; football.db is gitignored)
+        run: pytest -m "not db" -q
+
+      - name: DB-dependent tests (if football.db present)
+        run: pytest -m db -q
+        continue-on-error: true

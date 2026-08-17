@@ -12,6 +12,13 @@ os.environ.setdefault("JWT_SECRET_KEY", "test-secret-key-0123456789")
 os.environ.setdefault("ADMIN_PASSWORD", "TestAdmin123")
 
 
+@pytest.fixture(autouse=True)
+def _skip_db_tests_if_no_db(request):
+    """CI 无 football.db(被 gitignore):依赖 DB 的测试自动跳过。"""
+    if "db" in getattr(request.node, "keywords", {}) and not DB_PATH.exists():
+        pytest.skip("缺少 data/football.db(DB 依赖测试,CI 跳过)")
+
+
 @pytest.fixture(scope="session")
 def app():
     """FastAPI 应用(TestClient 用)。"""

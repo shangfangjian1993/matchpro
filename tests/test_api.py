@@ -1,3 +1,7 @@
+import pytest
+
+pytestmark = pytest.mark.db
+
 """API 最小测试:健康/认证/预测。"""
 
 

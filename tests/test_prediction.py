@@ -1,3 +1,7 @@
+import pytest
+
+pytestmark = pytest.mark.db
+
 """预测链路最小测试:输出完整性 + 快照幂等。"""
 
 
