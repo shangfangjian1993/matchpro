@@ -23,6 +23,19 @@ _FDO_CODES = ["PL", "PD", "BL1", "SA", "FL1"]
 _LOCK = "/tmp/auto_sync.lock"
 
 
+def _job_collector(freq: str):
+    """数据源集采编排(重构:按实效性频次,主源→降级)。"""
+    from app.services.data.collector import run_frequency
+    print(f"[collector] 执行 {freq} ...", flush=True)
+    report = run_frequency(freq)
+    ok = all(v.get("ok", False) for v in report.values())
+    for dtype, v in report.items():
+        status = "✅" if v.get("ok") else "❌"
+        print(f"  {status} {dtype}: {v.get('source')} | {v.get('detail')}", flush=True)
+    print(f"[collector] {freq} 完成 rc={'0' if ok else '1'}", flush=True)
+    return 0 if ok else 1
+
+
 def _current_season_start() -> int:
     """当前足球赛季起始年:8 月~次年 5 月为一季(2026-08 → 2026)"""
     from datetime import datetime
@@ -107,11 +120,13 @@ def _job_weekly():
 
 def run_sync_job(job: str = "all") -> dict:
     """同步任务分发(daily/fixtures/injury/weekly/all);返回汇总 dict。"""
-    jobs = ["daily", "fixtures", "injury", "weekly"] if job == "all" else [job]
+    jobs = (["daily", "fixtures", "injury", "weekly", "monthly"] if job == "all"
+            else [job])
     result = {}
     for j in jobs:
         fn = {"daily": _job_daily, "fixtures": _job_fixtures,
-              "injury": _job_injury, "weekly": _job_weekly}[j]
+              "injury": _job_injury, "weekly": _job_weekly,
+              "monthly": lambda: _job_collector("monthly")}[j]
         try:
             rc = _with_lock(fn)
             result[j] = rc

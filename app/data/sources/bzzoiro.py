@@ -303,7 +303,7 @@ def ingest_stats(league_type_value: str, limit_events: int | None = None,
     limit_events: 限制处理的 event 数(测速用);None=该联赛全部。
     返回 {"events": n, "matched": n, "updated_stats": n, "errors": n}。
     """
-    from app.api.db import Match, TeamMatchStats, db, session_scope
+    from app.api.db import TeamMatchStats, db, session_scope
     _idx = _event_match_index(league_type_value)
     events = []
     if limit_events:
@@ -411,3 +411,70 @@ def ingest_odds(league_type_value: str, limit_events: int | None = None,
     if verbose:
         print(f"  {league_type_value} odds: 事件 {len(events)} | 匹配 {matched} | 写入 {written} | 错误 {errors}", flush=True)
     return {"events": len(events), "matched": matched, "written": written, "errors": errors}
+
+
+def import_recent(league_type_value: str, seasons: int = 1, verbose: bool = True) -> dict:
+    """近 N 季增量 merge(轻量,供 daily 采集)”—— 只处理最近 N 季事件。
+
+    相比 merge_league 全量:直接按事件 offset 翻页,早于截止页快进;
+    对命中页逐场 merge 更新比分/半场。返回 {"fetched","updated","inserted"}。
+    """
+    from app.api.db import db, session_scope
+    from app.api.db import League, Match
+
+    league_id = LEAGUE_IDS.get(league_type_value)
+    if league_id is None:
+        raise ValueError(f"bzzoiro 未映射: {league_type_value}")
+    # 最新事件日 → 截止
+    d0 = _get("/events/", {"league_id": league_id, "status": "finished", "limit": 1})
+    latest = _dt.datetime.fromisoformat(d0["results"][0]["event_date"].replace("Z", "+00:00"))
+    last_season = latest.year if latest.month >= 8 else latest.year - 1
+    cutoff = _dt.datetime(last_season - seasons + 1, 8, 1).replace(tzinfo=None)
+    total = d0.get("count", 0)
+
+    rows, ofs = [], 0
+    while ofs < total:
+        batch = fetch_events(league_id=league_id, status="finished", limit=200, offset=ofs)
+        if not batch:
+            break
+        kept = [e for e in batch if _dt.datetime.fromisoformat(
+            e["event_date"].replace("Z", "+00:00")).replace(tzinfo=None) >= cutoff]
+        if kept:
+            rows.extend(kept)
+        ofs += 200
+        _time.sleep(0.25)
+        if not kept:
+            continue  # 旧页快进
+
+    inserted_list, updated, errors = [], 0, 0
+    with session_scope():
+        league = League.query.filter_by(league_type=league_type_value).first()
+        existing = {}
+        if league is not None:
+            for m in Match.query.filter_by(league_id=league.id).all():
+                hn, an = _norm(m.home_team), _norm(m.away_team)
+                key = (hn, an)
+                existing.setdefault(key, []).append(m)
+        for e in rows:
+            try:
+                nm = to_normalized(e, league_type_value)
+                cands = existing.get((_norm(nm.home_team), _norm(nm.away_team))) or []
+                old = next((m for m in cands
+                            if abs((m.match_date.date() - nm.date.date()).days) <= 1), None)
+                if old is not None:
+                    old.home_goals = nm.home_goals
+                    old.away_goals = nm.away_goals
+                    old.home_ht_goals = nm.home_ht_goals
+                    old.away_ht_goals = nm.away_ht_goals
+                    updated += 1
+                else:
+                    inserted_list.append(nm)
+            except Exception:
+                errors += 1
+        db.session.flush()
+    from app.data.canonical.ingest import upsert_matches
+    r = upsert_matches(inserted_list) if inserted_list else {"inserted": 0, "updated": 0, "skipped": 0, "errors": []}
+    if verbose:
+        print(f"  {league_type_value} 近{seasons}季: 拉取{len(rows)} 更新{updated} 新增{r['inserted']} 错误{errors}",
+              flush=True)
+    return {"fetched": len(rows), "updated": updated, "inserted": r["inserted"], "errors": errors}

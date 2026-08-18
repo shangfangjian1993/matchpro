@@ -21,7 +21,8 @@ _SCHEDULE = [
     ("daily", None, 22, 0),
     ("fixtures", None, 9, 30),
     ("injury", None, 14, 0),   # 每日赛前拉当天伤停
-    ("weekly", 0, 3, 0),   # 周一凌晨
+    ("weekly", 0, 3, 0),
+    ("monthly", 0, 4, 0),  # 每月首日 04:00   # 周一凌晨
 ]
 _WINDOW_MIN = 5  # 触发窗口 ±5 分钟
 
