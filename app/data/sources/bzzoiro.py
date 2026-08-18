@@ -46,6 +46,7 @@ def available() -> bool:
 def _get(path: str, params: dict | None = None) -> dict:
     import json
     import time
+    import urllib.request
     url = f"{BASE.replace('_','')}{path.lstrip('/')}"
     if params:
         import urllib.parse
@@ -221,19 +222,19 @@ def merge_league(league_type_value: str, since_year: int | None = None,
             league = League(league_type=league_type_value, name=league_type_value)
             db.session.add(league)
             db.session.flush()
-        # 索引:old 行 (home_team, away_team) → 含 ±1 天容差日期
-        existing = {}
+        # 预建归一索引: (home_norm, away_norm) → rows(主客对调也收录)
+        norm_index = {}
         for m in Match.query.filter_by(league_id=league.id).all():
-            existing.setdefault((m.home_team, m.away_team), []).append(m)
+            hn, an = _norm(m.home_team), _norm(m.away_team)
+            norm_index.setdefault((hn, an), []).append(m)
+            norm_index.setdefault((an, hn), []).append(m)   # 主场对调容错
 
         def _find(raw):
             hn, an = _norm(raw["home_team"]), _norm(raw["away_team"])
             d0 = _dt.datetime.fromisoformat(raw["event_date"].replace("Z", "+00:00")).date()
-            for (oh, oa), ms in existing.items():
-                if (_norm(oh) == hn and _norm(oa) == an) or (_norm(oh) == an and _norm(oa) == hn):
-                    for m in ms:
-                        if abs((m.match_date.date() - d0).days) <= 1:
-                            return m
+            for m in norm_index.get((hn, an), []):
+                if abs((m.match_date.date() - d0).days) <= 1:
+                    return m
             return None
 
         for r in rows:
@@ -257,3 +258,156 @@ def merge_league(league_type_value: str, since_year: int | None = None,
               f"新增 {res['inserted']} | 错误 {errors}", flush=True)
     return {"fetched": len(rows), "updated": update_existing,
             "inserted": res["inserted"], "errors": errors + len(res.get("errors", []))}
+
+
+# ── 子资源采集:stats → team_match_stats;odds → match_odds ──────────────
+_STATS_MAP = {
+    "expected_goals": "xg", "total_shots": "shots", "shots_on_target": "shots_on_target",
+    "ball_possession": "possession", "corner_kicks": "corners",
+    "yellow_cards": "yellow_cards", "red_cards": "red_cards",
+    "fouls": "fouls", "offsides": "offsides", "tackles": "tackles",
+    "interceptions": "interceptions", "clearances": "clearances",
+    "blocked_shots": "blocked_shots", "big_chances": "big_chances",
+    "total_saves": "total_saves", "shots_inside_box": "shots_inside_box",
+    "shots_outside_box": "shots_outside_box",
+}
+
+
+def _event_match_index(league_type_value: str):
+    """(date, home_norm, away_norm) → Match(主客对调也收录)。"""
+    from app.api.db import League, Match
+    league = League.query.filter_by(league_type=league_type_value).first()
+    out = {}
+    if league is None:
+        return out
+    for m in Match.query.filter_by(league_id=league.id).all():
+        hn, an = _norm(m.home_team), _norm(m.away_team)
+        key = (str(m.match_date.date()), hn, an)
+        out.setdefault(key, []).append(m)
+        out.setdefault((str(m.match_date.date()), an, hn), []).append(m)
+    return out
+
+
+def _find_match(idx, raw):
+    import datetime as dt
+    d0 = dt.datetime.fromisoformat(raw["event_date"].replace("Z", "+00:00")).date()
+    for m in idx.get((str(d0), _norm(raw["home_team"]), _norm(raw["away_team"])), []):
+        return m
+    return None
+
+
+def ingest_stats(league_type_value: str, limit_events: int | None = None,
+                 offset: int = 0, verbose: bool = True) -> dict:
+    """逐场拉 stats → 写 team_match_stats(home/away 两行,upsert)。
+
+    limit_events: 限制处理的 event 数(测速用);None=该联赛全部。
+    返回 {"events": n, "matched": n, "updated_stats": n, "errors": n}。
+    """
+    from app.api.db import Match, TeamMatchStats, db, session_scope
+    _idx = _event_match_index(league_type_value)
+    events = []
+    if limit_events:
+        events = fetch_events(league_id=LEAGUE_IDS.get(league_type_value), status="finished",
+                              limit=limit_events, offset=offset)
+    else:
+        off = 0
+        while True:
+            batch = fetch_events(league_id=LEAGUE_IDS.get(league_type_value), status="finished",
+                                 limit=100, offset=off)
+            if not batch:
+                break
+            events.extend(batch)
+            off += 100
+            if len(batch) < 100:
+                break
+            _time.sleep(0.3)
+    matched = updated = errors = 0
+    with session_scope():
+        for e in events:
+            m = _find_match(_idx, e)
+            if m is None:
+                continue
+            matched += 1
+            try:
+                d = _get(f"/events/{e['id']}/stats/")
+                st = d.get("stats") or {}
+                for side, mid, tid in (("home", m.id, m.home_team_id), ("away", m.id, m.away_team_id)):
+                    src = st.get(side) or {}
+                    row = TeamMatchStats.query.filter_by(match_id=mid, side=side).first()
+                    data = {"match_id": mid, "team_id": tid, "side": side}
+                    for k_src, k_dst in _STATS_MAP.items():
+                        v = src.get(k_src)
+                        if v is not None:
+                            data[k_dst] = int(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and float(v).is_integer() else (float(v) if isinstance(v, (int, float)) else None)
+                    if row is None:
+                        db.session.add(TeamMatchStats(**data))
+                    else:
+                        for k, v in data.items():
+                            setattr(row, k, v)
+                updated += 1
+            except Exception:
+                errors += 1
+            _time.sleep(0.25)
+        db.session.commit()
+    if verbose:
+        print(f"  {league_type_value} stats: 事件 {len(events)} | 匹配 {matched} | "
+              f"更新 {updated} | 错误 {errors}", flush=True)
+    return {"events": len(events), "matched": matched, "updated": updated, "errors": errors}
+
+
+def ingest_odds(league_type_value: str, limit_events: int | None = None,
+                offset: int = 0, verbose: bool = True) -> dict:
+    """逐场拉收盘 odds → match_odds(upsert by match_id)。"""
+    from app.api.db import db, session_scope
+    _idx = _event_match_index(league_type_value)
+    events = []
+    if limit_events:
+        events = fetch_events(league_id=LEAGUE_IDS.get(league_type_value), status="finished",
+                              limit=limit_events, offset=offset)
+    else:
+        off = 0
+        while True:
+            batch = fetch_events(league_id=LEAGUE_IDS.get(league_type_value), status="finished",
+                                 limit=100, offset=off)
+            if not batch:
+                break
+            events.extend(batch)
+            off += 100
+            if len(batch) < 100:
+                break
+            _time.sleep(0.3)
+    from app.api.db import MatchOdds
+    matched = written = errors = 0
+    with session_scope():
+        for e in events:
+            m = _find_match(_idx, e)
+            if m is None:
+                continue
+            matched += 1
+            try:
+                d = _get(f"/events/{e['id']}/odds/")
+                od = d.get("odds") or {}
+                row = MatchOdds.query.filter_by(match_id=m.id).first()
+                data = {"match_id": m.id, "league_id": m.league_id,
+                        "home_team": m.home_team, "away_team": m.away_team,
+                        "event_date": m.match_date,
+                        "home_win": od.get("home_win"), "draw": od.get("draw"),
+                        "away_win": od.get("away_win"),
+                        "over_15": od.get("over_15_goals"), "under_15": od.get("under_15_goals"),
+                        "over_25": od.get("over_25_goals"), "under_25": od.get("under_25_goals"),
+                        "over_35": od.get("over_35_goals"), "under_35": od.get("under_35_goals"),
+                        "btts_yes": od.get("btts_yes"), "btts_no": od.get("btts_no"),
+                        "updated_at": _dt.datetime.utcnow()}
+                if row is None:
+                    db.session.add(MatchOdds(**data))
+                else:
+                    for k, v in data.items():
+                        setattr(row, k, v)
+                written += 1
+            except Exception:
+                errors += 1
+            _time.sleep(0.25)
+        db.session.commit()
+    if verbose:
+        print(f"  {league_type_value} odds: 事件 {len(events)} | 匹配 {matched} | 写入 {written} | 错误 {errors}", flush=True)
+    return {"events": len(events), "matched": matched, "written": written, "errors": errors}
