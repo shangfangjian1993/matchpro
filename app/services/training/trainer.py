@@ -42,6 +42,8 @@ def train_model(league_type: LeagueType, target_column: str = "goals",
 
     matches = Match.query.filter_by(league_id=league.id, match_status="finished").all()
     df = matches_to_dataframe(matches)
+    # 训练窗口:仅最近 N 季(审查/需求:数据全量入库,模型训练只用最近 10 赛季)
+    df = _recent_seasons(df)
     # ELO 特征注入(每场取赛前 rating,防泄漏)
     # §18:ELO 注入统一在 Feature Factory(prepare 内)
 
@@ -281,3 +283,21 @@ def _holdout_prob_metrics(model, df, target_column: str = "goals") -> dict:
         "rps": round(sum(_rps(p, a) for p, a in zip(pvecs, acts)) / len(pvecs), 5),
         "n": len(pvecs),
     }
+
+
+def _recent_seasons(df) -> pd.DataFrame:
+    """按 configs/models.yaml training.seasons 过滤最近 N 季(默认 10)。"""
+    try:
+        from app.core.config import load_yaml
+        n = int((load_yaml("models.yaml").get("training") or {}).get("seasons", 10))
+    except Exception:
+        n = 10
+    if n <= 0 or "date" not in df.columns or df.empty:
+        return df
+    dates = pd.to_datetime(df["date"], errors="coerce").dropna()
+    if dates.empty:
+        return df
+    latest = dates.max()
+    # 从最新日期倒推 N 个赛季起始(每季按 365 天近似;8 月起年号对齐)
+    start = latest - pd.DateOffset(years=n)
+    return df[pd.to_datetime(df["date"], errors="coerce") >= start].copy()

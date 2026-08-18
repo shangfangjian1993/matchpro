@@ -39,6 +39,8 @@ elo_goal:
 training:
   cv_folds: 5
   holdout_fraction: 0.2
+  # 训练窗口:仅用最近 N 个赛季(2026-08 定;数据源已全量到 60 年代,训练限制 10 季)
+  seasons: 10
   sample_weight:
     enabled: false
     method: time_decay
