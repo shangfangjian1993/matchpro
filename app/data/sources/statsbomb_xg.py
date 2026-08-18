@@ -12,7 +12,6 @@
 from __future__ import annotations
 
 import logging
-import os
 
 import pandas as pd
 
@@ -79,7 +78,7 @@ def enrich_matches(league_type, rows, verbose: bool = True) -> dict:
     comp_id = int(cand.iloc[0]["competition_id"])
     year_set = {_season_year(m.match_date) for m in rows}
     from app.api.db import db
-    updated = unmatched = 0
+    updated = 0
     for _, srow in cand.iterrows():
         sid = int(srow["season_id"])
         sname = str(srow["season_name"])  # 形如 2019/2020
@@ -104,7 +103,7 @@ def enrich_matches(league_type, rows, verbose: bool = True) -> dict:
                 updated += 1
         db.session.flush()
     db.session.commit()
-    return {"updated": updated, "unmatched": len(rows) - updated}
+    return {"updated": updated, "unmatched": len(rows) - updated, "checked_seasons": len(cand)}
 
 
 def _season_year(dt):
