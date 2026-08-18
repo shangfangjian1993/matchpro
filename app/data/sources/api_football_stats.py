@@ -48,7 +48,29 @@ _TEAM_ALIAS = {
     "nottingham": "nottingham",
     "brighton": "brighton",
     "west ham": "west ham",
+    "paris saint germain": "psg",
+    "paris saintgermain": "psg",
+    "internazionale milano": "inter milan",
+    "inter milan": "inter milan",
+    "borussia monchengladbach": "gladbach",
+    "borussia dortmund": "dortmund",
+    "germain": "psg",
 }
+
+def _fuzzy(a_norm: str, b_norm: str) -> bool:
+    """token 集合模糊匹配:共同 token 数 ≥ 双方 token 数 60%。"""
+    if not a_norm or not b_norm:
+        return False
+    if a_norm == b_norm:
+        return True
+    sa, sb = set(a_norm.split()), set(b_norm.split())
+    common = sa & sb
+    if not common:
+        return False
+    # 常规:共同 token ≥ 60% · 二单 token 时其包含关系也算(如 "inter" vs "inter milan")
+    if len(common) >= 0.6 * max(len(sa), len(sb)):
+        return True
+    return (len(sa) == 1 and sa <= sb) or (len(sb) == 1 and sb <= sa)
 
 
 def _key() -> str:
@@ -69,9 +91,21 @@ def _norm(name: str) -> str:
 
 
 def _get(url: str) -> dict:
-    req = urllib.request.Request(url, headers={"x-apisports-key": _key()})
-    with urllib.request.urlopen(req, timeout=20) as r:
-        return json.load(r)
+    """带限速+退避的 GET(free 层 429 限流)。"""
+    import time
+    for attempt in range(4):
+        req = urllib.request.Request(url, headers={"x-apisports-key": _key()})
+        try:
+            with urllib.request.urlopen(req, timeout=25) as r:
+                return json.load(r)
+        except urllib.error.HTTPError as e:
+            if e.code == 429 and attempt < 3:
+                time.sleep(2.0 * (attempt + 1))
+                continue
+            raise
+        except Exception:
+            time.sleep(1.0)
+    raise RuntimeError("api-football 请求重试耗尽")
 
 
 def _season_of(date):
@@ -81,15 +115,20 @@ def _season_of(date):
     return str(date)[:4]
 
 
+_FIXTURE_CACHE: dict = {}
+
+
 def _fixture_id(league_id: int, season: str, date: str, home: str, away: str) -> int | None:
-    """按日期+球队找 api fixture id(1 次 fixtures 调用/日期,可缓存)。"""
-    d = _get(f"https://v3.football.api-sports.io/fixtures?league={league_id}&season={season}"
-             f"&from={date}&to={date}")
+    """按日期+球队找 api fixture id(1 次 fixtures 调用/日期,模块级缓存复用)。"""
+    ckey = (league_id, season, date)
+    if ckey not in _FIXTURE_CACHE:
+        _FIXTURE_CACHE[ckey] = _get(f"https://v3.football.api-sports.io/fixtures?league={league_id}"
+                                    f"&season={season}&from={date}&to={date}")
+    d = _FIXTURE_CACHE[ckey]
     for f in d.get("response", []):
         hn, an = _norm(f["teams"]["home"]["name"]), _norm(f["teams"]["away"]["name"])
         dbh, dba = _norm(home), _norm(away)
-        if ((hn == dbh or (len(hn) >= 6 and len(dbh) >= 6 and (hn in dbh or dbh in hn)))
-                and (an == dba or (len(an) >= 6 and len(dba) >= 6 and (an in dba or dba in an)))):
+        if _fuzzy(hn, dbh) and _fuzzy(an, dba):
             return f["fixture"]["id"]
     return None
 
@@ -121,6 +160,8 @@ def enrich_matches(league_type, rows, season: str = "2024", verbose: bool = True
             if fid is None:
                 unmatched += 1
                 continue
+            import time as _time
+            _time.sleep(0.4)  # free 限速控制
             d = _get(f"https://v3.football.api-sports.io/fixtures/statistics?fixture={fid}")
             calls += 1
             resp = d.get("response") or []
