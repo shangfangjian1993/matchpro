@@ -19,6 +19,9 @@ def main():
                     help="用 SoccerData(FBref)回填统计(FBref 在数据中心 IP 有验证码,建议 NAS) ")
     ap.add_argument("--enrich-apifootball", action="store_true",
                     help="用 api-football(正式 API,无验证码)回填统计;推荐替代 FBref")
+    ap.add_argument("--zafronix", action="store_true",
+                    help="Zafronix 欧战/国家队历史补全(世界杯/欧冠/欧洲杯)")
+    ap.add_argument("--year", default=None, help="Zafronix 赛事年份(逗号分隔)")
     ap.add_argument("--league", default=None,
                     help="enrich 联赛(默认全部 5 大联赛)")
     ap.add_argument("--season", default="2024",
@@ -35,6 +38,31 @@ def main():
         _run_enrich(args.league, args.season)
     if args.enrich_apifootball:
         _run_enrich_apifootball(args.league, args.season)
+    if args.zafronix:
+        _run_zafronix(args.league, args.year)
+
+
+def _run_zafronix(league: str | None, year: str | None):
+    from app.api.db import init_db, session_scope
+    from app.data.sources.zafronix import TOURNAMENT_PATHS, available as zx_available
+    from app.data.sources.zafronix import ingest_year
+    if not zx_available():
+        print("⚠️ 未配置 ZAFRONIX_KEY,跳过 Zafronix")
+        return
+    init_db()
+    leagues = [league] if league else list(TOURNAMENT_PATHS)
+    years = [int(y) for y in (year or "").split(",") if y.strip()] if year else None
+    with session_scope():
+        for lt in leagues:
+            if not years:
+                print(f"  {lt}: 未指定 --year,跳过(如 --year 2022,2018)")
+                continue
+            for y in years:
+                try:
+                    ingest_year(lt, y)
+                except Exception as e:
+                    print(f"  ✗ {lt} {y}: {type(e).__name__} {e}")
+    print("✅ [pipeline] Zafronix 完成")
 
 
 def _run_enrich_apifootball(league: str | None, season: str):
