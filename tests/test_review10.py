@@ -109,7 +109,7 @@ def test_invariants_xg_consistency():
     from app.prediction.invariants import check_xg
 
     m = _pois_matrix(1.5, 1.2)
-    grid = np.arange(10.0)
+    grid = np.arange(m.shape[0])
     xg_h = float((m * grid[:, None]).sum())
     xg_a = float((m * grid[None, :]).sum())
     assert check_xg(m, xg_h, xg_a, tol=0.05) == []

@@ -289,6 +289,10 @@ def save(
         "prior_blend": result.get("prior_blend"),
     }
     _probs = {
+        # 审查 f01d7e4 P1-6:校准**输入**(校准前最终 1X2)—— fit_calibration
+        # 用它训练,保证与生产校准输入同分布(旧快照无此键 → fallback 使用
+        # home_win/draw/away_win)
+        "pre_calibration": result.get("_calibration_input_1x2"),
         "home_win": result["home_win_probability"],
         "draw": result["draw_probability"],
         "away_win": result["away_win_probability"],

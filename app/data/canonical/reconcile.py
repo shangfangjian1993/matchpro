@@ -14,8 +14,12 @@ from __future__ import annotations
 
 import json
 
-# 计数字段(与 NormalizedMatch 对齐)
-_SCORE_FIELDS = ("home_goals", "away_goals", "home_ht_goals", "away_ht_goals")
+# 计数字段(与 NormalizedMatch 对齐;按 home/away 成对处理以支持主客场反转)
+_SCORE_PAIRS = (
+    ("home_goals", "away_goals"),
+    ("home_ht_goals", "away_ht_goals"),
+)
+_SCORE_FIELDS = tuple(x for pr in _SCORE_PAIRS for x in pr)
 
 
 def lineage_available(columns: tuple[str, ...] | None = None) -> bool:
@@ -46,19 +50,57 @@ def _same_score(old, nm) -> bool:
     return True
 
 
-def maybe_update(old, nm, source: str, force_override: bool = False) -> str:
+def _aligned_nm_vals(old, nm, orientation: str):
+    """按 orientation 返回 nm 对齐到 old 方向的 (home, away) 对(仅比分明文字段)。"""
+    aligned = {}
+    for l, r in _SCORE_PAIRS:
+        nv_l, nv_r = getattr(nm, l, None), getattr(nm, r, None)
+        if orientation == "REVERSED":
+            aligned[l], aligned[r] = nv_r, nv_l
+        else:
+            aligned[l], aligned[r] = nv_l, nv_r
+    return aligned
+
+
+def _same_score(old, aligned: dict) -> bool:
+    for l, r in _SCORE_PAIRS:
+        ov = getattr(old, l, None)
+        if aligned[l] is not None and ov is not None and aligned[l] != ov:
+            return False
+        ov = getattr(old, r, None)
+        if aligned[r] is not None and ov is not None and aligned[r] != ov:
+            return False
+    return True
+
+
+def _write_scores(old, aligned: dict):
+    for l, r in _SCORE_PAIRS:
+        if aligned[l] is not None:
+            setattr(old, l, aligned[l])
+        if aligned[r] is not None:
+            setattr(old, r, aligned[r])
+
+
+def maybe_update(
+    old,
+    nm,
+    source: str,
+    orientation: str = "SAME",
+    force_override: bool = False,
+) -> str:
     """决定并执行对旧行的更新;返回 reconciliation 结果标记。
 
+    orientation: source 相对 canonical 的方向("SAME"=主客一致,
+    "REVERSED"=来源主客场与 canonical 对调 —— 反转时比分/半场按对齐写入,
+    绝不用来源方向污染 canonical;审查 f01d7e4 P0-1)。
     force_override=True:占位升级(如 scheduled 0:0 → finished 真实比分),
     总是覆盖比分并记录来源/快照(非跨源冲突)。
     返回值: "consensus" / "override" / "conflict" / "legacy_override"
     """
+    aligned = _aligned_nm_vals(old, nm, orientation)
     if not lineage_available():
-        # 未迁移:保持旧直写行为(不引入依赖)
-        for f in _SCORE_FIELDS:
-            v = getattr(nm, f, None)
-            if v is not None:
-                setattr(old, f, v)
+        # 未迁移:保持旧直写行为(不引入依赖;仍用对齐值防反转污染)
+        _write_scores(old, aligned)
         return "legacy_override"
 
     sources = _load_json(getattr(old, "sources_json", None), [])
@@ -66,7 +108,7 @@ def maybe_update(old, nm, source: str, force_override: bool = False) -> str:
         sources.append(source)
         old.sources_json = json.dumps(sources, ensure_ascii=False)
 
-    same = _same_score(old, nm)
+    same = _same_score(old, aligned)
     if force_override:
         # 占位升级:记录旧值快照后覆盖(不算冲突)
         snap = _load_json(getattr(old, "source_scores_json", None), {})
@@ -76,10 +118,7 @@ def maybe_update(old, nm, source: str, force_override: bool = False) -> str:
             if v is not None:
                 snap.setdefault(f, {})[snap_entry] = v
         old.source_scores_json = json.dumps(snap, ensure_ascii=False)
-        for f in _SCORE_FIELDS:
-            v = getattr(nm, f, None)
-            if v is not None:
-                setattr(old, f, v)
+        _write_scores(old, aligned)
         old.source = source
         old.reconciliation = "override"
         return "override"
@@ -107,10 +146,7 @@ def maybe_update(old, nm, source: str, force_override: bool = False) -> str:
     # 决策:无旧来源(legacy/单源)且冲突 → 标记 conflict,保留旧值
     if old.source is None or old.source == "legacy":
         old.source = source
-        for f in _SCORE_FIELDS:
-            v = getattr(nm, f, None)
-            if v is not None:
-                setattr(old, f, v)
+        _write_scores(old, aligned)
         old.reconciliation = "override"
         return "override"
     # 跨源冲突:保留旧值并标记(不静默覆盖历史)

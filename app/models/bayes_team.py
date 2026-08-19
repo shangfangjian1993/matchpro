@@ -26,7 +26,9 @@ LEAGUE_KAPPA = 15.0  # 球队历史先验收缩强度
 RECENT_KAPPA = 8.0  # 近期状态收缩强度
 HIST_WINDOW = 1000  # 球队历史先验窗口
 RECENT_WINDOW = 200  # 近期窗口
-DECAY_HALFLIFE = 200.0  # 时间衰减半衰期(场)
+DECAY_HALFLIFE = 200
+# 审查 f01d7e4 P2-8:日历半衰(天)—— 与场次半衰并存,反映密集赛程/休赛差异
+DECAY_HALFLIFE_DAYS = 400.0  # 时间衰减半衰期(场)
 
 
 def _league_avg(hist_df: pd.DataFrame) -> float:
@@ -67,9 +69,15 @@ def _team_stats(
     scored = np.where(is_home, gf, ga)
     conceded = np.where(is_home, ga, gf)
     if decay and len(idx) > 1:
-        # 时间衰减权重:最近场权重最高(半衰期 DECAY_HALFLIFE 场)
+        # 双重衰减(审查 f01d7e4 P2-8):match-count × calendar ——
+        #   w = exp(-0.693·age_match/τ_match) × exp(-0.693·age_days/τ_days)
+        # 连续密集比赛(7 天 vs 40 天)能被日历项区分
         ages = np.arange(len(idx) - 1, -1, -1, dtype=float)
         w = np.exp(-0.693 * ages / DECAY_HALFLIFE)
+        if "date" in rows.columns and rows["date"].notna().all():
+            _d = pd.to_datetime(rows["date"])
+            days = (_d.iloc[-1] - _d).dt.days.to_numpy(dtype=float)
+            w = w * np.exp(-0.693 * days / DECAY_HALFLIFE_DAYS)
         w = w / w.sum()
         scored = np.nansum(scored * w) if not np.isnan(scored).all() else np.nan
         conceded = np.nansum(conceded * w) if not np.isnan(conceded).all() else np.nan
@@ -91,7 +99,8 @@ def team_posteriors(
     """两阶段经验贝叶斯收缩 → (attack_posterior, defense_posterior)(相对 1)。
 
     阶段1:球队历史先验(全历史 → league);
-    阶段2:近期状态(指数衰减 → 球队历史先验)。
+    阶段2:近期状态(指数衰减 → 球队历史先验);
+      attack 用 side 侧近况、defense 用 overall 全侧近况(审查 f01d7e4 P1-4)。
     无样本 → (1.0, 1.0)(完全收缩到 league)。
     """
     if hist_df is None or hist_df.empty:
@@ -104,9 +113,17 @@ def team_posteriors(
     w1 = n1 / (n1 + kappa_hist)
     prior_att = w1 * hs + (1 - w1) * league
     prior_def = w1 * hc + (1 - w1) * league
-    # 阶段2:近期状态(按 side 侧,指数衰减)收缩到球队先验
-    rs, rc, n2 = _team_stats(hist_df, team, side=side, window=RECENT_WINDOW, decay=True)
-    if n2 == 0 or np.isnan(rs):
+    # 阶段2:近期状态收缩到先验 —— 审查 f01d7e4 P1-4(实现=规格统一):
+    #   attack  → side-specific(side 主/客场近况,如'home'主队更贴合主场进攻)
+    #   defense → overall(side=None,全侧近况,规格声明"防守全侧估计更稳")
+    rs, _rc_s, n2a = _team_stats(
+        hist_df, team, side=side, window=RECENT_WINDOW, decay=True
+    )
+    _rs_d, rc, n2d = _team_stats(
+        hist_df, team, side=None, window=RECENT_WINDOW, decay=True
+    )
+    n2 = int(max(n2a, n2d))
+    if n2 == 0 or np.isnan(rs) or np.isnan(rc):
         return prior_att / league, prior_def / league
     w2 = n2 / (n2 + kappa_recent)
     post_att = w2 * rs + (1 - w2) * prior_att

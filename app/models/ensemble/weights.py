@@ -16,6 +16,59 @@ DEFAULT_WEIGHTS = {
     "gbm": 0.0,
     "bayes": 0.0,
 }
+# 审查 f01d7e4 P1-5:Goal / Score / Outcome 三层权重(概念与存储分层)。
+#   goal_lambda        λ 融合: HGBR/ELO/Bayes(独立 λ 成员)
+#   score_distribution 分布形态: Poisson(hgbr+elo+bayes 共享的 Poise 基)/DC/NB
+#   outcome           1×2 分类器: GBM(独立于 λ/矩阵)
+# 加载时兼容旧扁平文件(自动 from_layered 平移);学习仍沿用 OOF 优化(扁平),
+# 落盘与审计按三层视图。poisson 基权重 = 全部 Poise 型成员质量之和。
+LAYER_MAP = {
+    "goal_lambda": ("hgbr", "elo", "bayes"),
+    "score_distribution": ("poisson", "dc", "nb"),
+    "outcome": ("gbm",),
+}
+
+
+def to_layered(flat: dict) -> dict:
+    """扁平权重 → 三层视图(goal 成员归一;poisson 基=hgbr+elo+bayes;sd 归一)。"""
+    goal = {k: float(flat.get(k, 0.0)) for k in LAYER_MAP["goal_lambda"]}
+    gsum = sum(goal.values()) or 1.0
+    sd = {
+        "poisson": gsum,
+        "dc": float(flat.get("dc", 0.0)),
+        "nb": float(flat.get("nb", 0.0)),
+    }
+    ssum = sum(sd.values()) or 1.0
+    return {
+        "goal_lambda": {k: round(v / gsum, 4) for k, v in goal.items()},
+        "score_distribution": {k: round(v / ssum, 4) for k, v in sd.items()},
+        "outcome": {"gbm": round(float(flat.get("gbm", 0.0)), 4)},
+    }
+
+
+def from_layered(layered: dict) -> dict:
+    """三层视图 → 扁平(供既有融合/矩阵逻辑消费;goal 归一权重 = 扁平归一一致)。"""
+    goal = layered.get("goal_lambda", {})
+    sd = layered.get("score_distribution", {})
+    gb = layered.get("outcome", {}).get("gbm", 0.0)
+    poisson = float(sd.get("poisson", 0.0))
+    # poisson 基权重按 goal 成员比例回分(hgbr/elo/bayes)
+    gsum = sum(float(goal.get(k, 0.0)) for k in LAYER_MAP["goal_lambda"]) or 1.0
+    w = {
+        "hgbr": poisson * (float(goal.get("hgbr", 0.0)) / gsum),
+        "elo": poisson * (float(goal.get("elo", 0.0)) / gsum),
+        "bayes": poisson * (float(goal.get("bayes", 0.0)) / gsum),
+        "dc": float(sd.get("dc", 0.0)),
+        "nb": float(sd.get("nb", 0.0)),
+        "gbm": gb,
+    }
+    return w
+
+
+def _is_layered(data) -> bool:
+    return isinstance(data, dict) and "goal_lambda" in data
+
+
 _WEIGHTS_PATH = None
 
 
@@ -186,6 +239,9 @@ def load_weights(league_key: str, default: dict | None = None) -> dict:
             raise TypeError(
                 f"ensemble_weights[{league_key}] 应为 dict,实际 {type(_entry).__name__}"
             )
+        if _is_layered(_entry):
+            # 审查 f01d7e4 P1-5:三层存储 → 平移回扁平供既有融合消费
+            _entry = from_layered(_entry)
         for k in ("hgbr", "dc", "nb", "elo", "gbm", "bayes"):
             if k not in _entry:
                 continue

@@ -109,11 +109,19 @@ def fetch_odds(
 
 
 def find_league(name: str) -> int | None:
-    """按名称(子串,不敏感)找 league_id。"""
-    for off in (0, 50):
-        for lg in _leagues_page(off):
+    """按名称(子串,不敏感)找 league_id(审查 f01d7e4 P2-9:真正分页到 total,
+    不再硬编码 0/50 两页 —— 数据源扩展到 150/200 联赛也能找到)。"""
+    off, limit = 0, 50
+    while True:
+        d = _get("/leagues/", {"limit": limit, "offset": off})
+        batch = d.get("results") or []
+        for lg in batch:
             if name.lower() in (lg.get("name") or "").lower():
                 return lg.get("id")
+        total = d.get("count", 0)
+        off += limit
+        if off >= total or len(batch) < limit:
+            break
     return None
 
 
@@ -193,6 +201,7 @@ def import_league(
             },
         )
         batch = d.get("results") or []
+        raw_len = len(batch)
         if not batch:
             break
         if since_year:
@@ -207,7 +216,7 @@ def import_league(
         rows.extend(batch)
         total = d.get("count", 0)
         offset += limit
-        if offset >= total or len(batch) < limit:
+        if offset >= total or raw_len < limit:
             break
         _time.sleep(0.35)  # 免费套餐稳健
     normalized = [to_normalized(r, league_type_value) for r in rows]
@@ -262,6 +271,7 @@ def merge_league(
             },
         )
         batch = d.get("results") or []
+        raw_len = len(batch)
         if not batch:
             break
         if since_year:
@@ -276,7 +286,7 @@ def merge_league(
         rows.extend(batch)
         total = d.get("count", 0)
         offset += limit
-        if offset >= total or len(batch) < limit:
+        if offset >= total or raw_len < limit:
             break
         _time.sleep(0.35)
 
@@ -287,31 +297,36 @@ def merge_league(
             league = League(league_type=league_type_value, name=league_type_value)
             db.session.add(league)
             db.session.flush()
-        # 预建归一索引: (home_norm, away_norm) → rows(主客对调也收录)
+        # 预建归一索引: (home_norm, away_norm) → [(Match, orientation)]
+        # 审查 f01d7e4 P0-1:主客对调容错同时记录方向 —— 否则 REVERSED 匹配
+        # 会用来源方向污染 canonical(Arsenal 2-1 Chelsea 被 B 队视角覆盖)。
         norm_index = {}
         for m in Match.query.filter_by(league_id=league.id).all():
             hn, an = _norm(m.home_team), _norm(m.away_team)
-            norm_index.setdefault((hn, an), []).append(m)
-            norm_index.setdefault((an, hn), []).append(m)  # 主场对调容错
+            norm_index.setdefault((hn, an), []).append((m, "SAME"))
+            norm_index.setdefault((an, hn), []).append((m, "REVERSED"))
 
         def _find(raw):
             hn, an = _norm(raw["home_team"]), _norm(raw["away_team"])
             d0 = _dt.datetime.fromisoformat(
                 raw["event_date"].replace("Z", "+00:00")
             ).date()
-            for m in norm_index.get((hn, an), []):
+            for m, orientation in norm_index.get((hn, an), []):
                 if abs((m.match_date.date() - d0).days) <= 1:
-                    return m
-            return None
+                    return m, orientation
+            for m, orientation in norm_index.get((an, hn), []):
+                if abs((m.match_date.date() - d0).days) <= 1:
+                    return m, orientation
+            return None, None
 
         for r in rows:
             try:
                 nm = to_normalized(r, league_type_value)
-                old = _find(r)
+                old, orientation = _find(r)
                 if old is not None:
                     from app.data.canonical.reconcile import maybe_update
 
-                    _rec = maybe_update(old, nm, "bzzoiro")
+                    _rec = maybe_update(old, nm, "bzzoiro", orientation=orientation)
                     update_existing += 1
                 else:
                     insert_new.append(nm)

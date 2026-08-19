@@ -255,6 +255,10 @@ class PredictionEngine:
             "away_team": away_team,
             "home_team_zh": ctx.get("home_team_zh", home_team),
             "away_team_zh": ctx.get("away_team_zh", away_team),
+            # 审查 f01d7e4 P1-3:raw λ(Goal Engine 融合中间量)与最终矩阵
+            # expected xG 严格分开 —— predicted_* 保留为 raw λ 的兼容别名。
+            "raw_lambda_home": round(home_lambda, 4),
+            "raw_lambda_away": round(away_lambda, 4),
             "predicted_home_goals": round(home_lambda, 2),
             "predicted_away_goals": round(away_lambda, 2),
             "home_win_probability": round(home_win, 4),
@@ -333,6 +337,14 @@ class PredictionEngine:
             result["prediction_status"] = "degraded" if _degraded else "ok"
 
         # ══ P0-2:Calibration 校准**最终输出**概率(IPF 之后)══
+        # 审查 f01d7e4 P1-6:记录校准**输入**(blend+IPF 后的最终 1X2,校准前),
+        # 供 fit_calibration 训练 —— 训练对象必须与生产校准输入同分布,
+        # 避免"用校准后输出再校准"的重复校准错配。
+        result["_calibration_input_1x2"] = [
+            result["home_win_probability"],
+            result["draw_probability"],
+            result["away_win_probability"],
+        ]
         result, _cal_info, _cal_degraded = calibration_service.apply(
             result, self.models_dir, league_type
         )
@@ -377,6 +389,9 @@ class PredictionEngine:
             result["under_2_5"] = _so2["under_2_5"]
             result["btts"] = _so2["btts"]
             result["expected_xg"] = _so2["expected_xg"]
+            # 审查 f01d7e4 P1-3:最终输出进球期望 = Final Matrix xG(唯一输出源)
+            result["expected_home_goals"] = _so2["expected_xg"][0]
+            result["expected_away_goals"] = _so2["expected_xg"][1]
         except Exception as _se:
             raise CorePredictionError(
                 "SCORE_MATRIX_FAILURE", f"最终矩阵导出失败: {_se}"

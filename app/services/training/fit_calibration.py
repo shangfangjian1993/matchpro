@@ -53,9 +53,15 @@ def main() -> int:
                 p = json.loads(s.probabilities_json)
                 gh, ga = s.actual_home_goals or 0, s.actual_away_goals or 0
                 label = 0 if gh > ga else (1 if gh == ga else 2)
-                probs.append(
-                    [p.get("home_win", 0), p.get("draw", 0), p.get("away_win", 0)]
-                )
+                # 审查 f01d7e4 P1-6:校准训练必须用**校准前输入**(pre_calibration)
+                # —— 否则用"已校准"输出训练再应用于校准前输入会分布错配;
+                # 旧快照无该键时回退 home_win/draw/away_win。
+                _pc = p.get("pre_calibration") or [
+                    p.get("home_win", 0),
+                    p.get("draw", 0),
+                    p.get("away_win", 0),
+                ]
+                probs.append([float(_pc[0]), float(_pc[1]), float(_pc[2])])
                 labels.append(label)
             # 联赛择优(评审 P1):β/Platt/Isotonic 三方法,评估段选 ECE 最低
             # 审查二十三:60/20/20 三段切分(时间序,Train fit / Val choose / Test report)

@@ -2,11 +2,11 @@
 
 
 def test_pois_pmf_vec_normalized():
-    from app.models.distributions import pois_pmf_vec
+    from app.models.distributions import MAX_GOALS, pois_pmf_vec
 
     p = pois_pmf_vec(1.5)
     assert abs(p.sum() - 1.0) < 1e-9
-    assert len(p) == 11
+    assert len(p) == MAX_GOALS + 1  # 矩阵 20×20(审查 f01d7e4 P2-7)
 
 
 def test_pois_matrix_normalized_and_consistent():

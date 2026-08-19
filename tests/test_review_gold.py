@@ -164,15 +164,16 @@ def test_ensemble_consistency_hgbr_only():
     m = _pois_matrix(lam_h, lam_a)
     # 边缘:主胜 = 下三角去对角(主队进球 > 客队),平局 = 对角,客胜 = 上三角
     # (与 distributions.matrix_to_probs 同一口径:tril(-1)=home, triu(1)=away)
-    home_w = m[np.tril_indices(10, -1)].sum()
+    _n = m.shape[0]
+    home_w = m[np.tril_indices(_n, -1)].sum()
     draw = np.trace(m)
-    away_w = m[np.triu_indices(10, 1)].sum()
+    away_w = m[np.triu_indices(_n, 1)].sum()
     p = match_probs(lam_h, lam_a)
     assert abs(home_w - p[0]) < 1e-6
     assert abs(draw - p[1]) < 1e-6
     assert abs(away_w - p[2]) < 1e-6
     # xG(矩阵期望)= λ(10×10 截断 + 归一化有 ~1e-4 精度损失,容差 1e-3)
-    grid = np.arange(10.0)
+    grid = np.arange(_n)
     xg_h = (m * grid[:, None]).sum()
     xg_a = (m * grid[None, :]).sum()
     assert abs(xg_h - lam_h) < 1e-3
