@@ -275,7 +275,7 @@ def _calibrate(pv, lt: LeagueType) -> tuple:
         "draw_probability": pv[1],
         "away_win_probability": pv[2],
     }
-    out, _info, _degraded = cal.apply(fake, str(MODELS_DIR), lt.value)
+    out, _info, _degraded = cal.apply(fake, str(MODELS_DIR), lt)
     return (
         out["home_win_probability"],
         out["draw_probability"],
