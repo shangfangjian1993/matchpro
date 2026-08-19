@@ -141,7 +141,7 @@ def main() -> int:
                 )
                 print(
                     f"  ✅ {lt.value}: 主胜 {r['home_win_probability']:.3f} "
-                    f"λ {r['predicted_home_goals']}/{r['predicted_away_goals']}"
+                    f"λ {r['raw_lambda_home']}/{r['raw_lambda_away']}"
                 )
             except Exception as e:
                 verified.append({"league": lt.value, "ok": False, "error": str(e)[:80]})

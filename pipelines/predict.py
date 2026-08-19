@@ -42,7 +42,7 @@ def main():
                 "home_win": r["home_win_probability"],
                 "draw": r["draw_probability"],
                 "away_win": r["away_win_probability"],
-                "lambda": [r["predicted_home_goals"], r["predicted_away_goals"]],
+                "raw_lambda": [r["raw_lambda_home"], r["raw_lambda_away"]],
                 # §4 完整输出
                 "top_scores": r.get("top_scores", []),
                 "over_2_5": r.get("over_2_5"),

@@ -259,8 +259,6 @@ class PredictionEngine:
             # expected xG 严格分开 —— predicted_* 保留为 raw λ 的兼容别名。
             "raw_lambda_home": round(home_lambda, 4),
             "raw_lambda_away": round(away_lambda, 4),
-            "predicted_home_goals": round(home_lambda, 2),
-            "predicted_away_goals": round(away_lambda, 2),
             "home_win_probability": round(home_win, 4),
             "draw_probability": round(draw, 4),
             "away_win_probability": round(away_win, 4),
