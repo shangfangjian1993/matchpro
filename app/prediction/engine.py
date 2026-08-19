@@ -95,7 +95,9 @@ class PredictionEngine:
         _h_mult, _a_mult = ctx.get("injury_mult", (1.0, 1.0))
         _degraded_components = list(ctx.get("degraded_components", []))
         _failure_codes = list(ctx.get("failure_codes", []))
-        _degraded = False
+        # 审查 ac2196b §9:ctx 已携带降级组件/失败码时,status 必须反映 degraded,
+        # 不得因 _degraded 初始 False 而把"存在降级"错误报成 ok
+        _degraded = bool(_degraded_components or _failure_codes)
         _ctx_info = None
 
         # ══ P0-Core:Goal/Ensemble 核心 —— 失败直接 raise,不静默降级 ══
