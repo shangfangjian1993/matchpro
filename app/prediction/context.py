@@ -128,6 +128,10 @@ class ContextBuilder:
         _pred_df = pd.concat(
             [hist_df, pd.DataFrame([home_row, away_row])], ignore_index=True
         )
+        # C 阶段:Stats 特征族 —— 传与 _pred_df 行对齐的 Match ORM 列表
+        # (历史每场 + 预测场 ×2,与 home_row/away_row 两行对应;预测场无
+        # 落库行时用占位 None → stats 列留 NaN,模型跳过,不阻断)
+        _hist_matches = list(history) + [matched, matched]
         _raw = _m.predict(_pred_df)
         home_lambda, away_lambda = (
             float(_raw["predictions"][-2]),
@@ -145,7 +149,7 @@ class ContextBuilder:
 
         _feat, _att_diff = None, 0.0
         try:
-            _feat = _m.prepare_features(_pred_df)
+            _feat = _m.prepare_features(_pred_df, hist_matches=_hist_matches)
         except Exception as _fe:
             raise FeatureComputationError(f"特征计算失败: {_fe}") from _fe
         if "attack_elo_diff" in _feat.columns:

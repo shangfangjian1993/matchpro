@@ -67,10 +67,10 @@ def compute_all(
             _idx = out.index
             _tmp = out.reset_index(drop=True)
             _tmp["match_id"] = [
-                m.id for m in hist_matches
-            ]  # 与 hist 顺序一致(调用方保证)
+                m.id if m is not None else None for m in hist_matches
+            ]  # 与 hist 顺序一致(调用方保证);None=无落库行(新预测)→ 左连不足留 NaN
             _stats_right = _stats_df[_stat_cols].copy()
-            _stats_right["match_id"] = _stats_right.index
+            _stats_right = _stats_right.reset_index()  # index(name=match_id) → 列
             out = pd.merge(_tmp, _stats_right, on="match_id", how="left")
             out = out.drop(columns=["match_id"])  # 仅作对齐键,不作特征
             out = out.set_index(_idx)

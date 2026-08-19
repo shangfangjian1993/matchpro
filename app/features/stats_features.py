@@ -86,6 +86,9 @@ def _roll(hist_matches, per_match: dict, windows: tuple = (5,)) -> dict:
     w0 = max(_w)
     alpha = 2.0 / (w0 + 1)
     for m in hist_matches:
+        if m is None:
+            out[None] = {}  # 无落库 Match(如新预测场):stats 全 None,模型跳过
+            continue
         st = per_match.get(m.id, {})
         home, away = m.home_team, m.away_team
         rec: dict = {}
@@ -166,7 +169,7 @@ def rolling_team_stats(hist_matches, windows: tuple = (5,)) -> pd.DataFrame:
     """
     if not hist_matches:
         return pd.DataFrame()
-    mids = [m.id for m in hist_matches]
+    mids = [m.id if m is not None else None for m in hist_matches]
     from app.api.db import TeamMatchStats
 
     rows = TeamMatchStats.query.filter(TeamMatchStats.match_id.in_(mids)).all()

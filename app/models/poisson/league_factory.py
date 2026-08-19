@@ -35,8 +35,14 @@ class LeagueModel(BaseFootballModel):
         "possession",
     )
 
-    def prepare_league_specific_features(self, data: pd.DataFrame) -> pd.DataFrame:
-        """统一走 Feature Factory(审查 §18:ELO 注入亦在 Factory 内)。"""
+    def prepare_league_specific_features(
+        self, data: pd.DataFrame, hist_matches=None
+    ) -> pd.DataFrame:
+        """统一走 Feature Factory(审查 §18:ELO 注入亦在 Factory 内)。
+
+        hist_matches:与 data 行对齐的 Match ORM 列表(C 阶段:Stats 特征族
+        需要逐场 match_id/队名查 team_match_stats;None=旧行为无 stats)。
+        """
         from app.features.factory import compute_all
 
         return compute_all(
@@ -44,11 +50,12 @@ class LeagueModel(BaseFootballModel):
             league_type=self.config.league_type.value,
             metric_columns=tuple(self.metric_columns or []),
             side_metric_columns=tuple(self.side_metric_columns or []),
+            hist_matches=hist_matches,
         )
 
-    def prepare_features(self, data: pd.DataFrame) -> pd.DataFrame:
-        """基类入口:转发到联赛特定特征准备"""
-        return self.prepare_league_specific_features(data)
+    def prepare_features(self, data: pd.DataFrame, hist_matches=None) -> pd.DataFrame:
+        """基类入口:转发到联赛特定特征准备(逐场 Match ORM 供 stats 特征)"""
+        return self.prepare_league_specific_features(data, hist_matches=hist_matches)
 
 
 class PremierLeagueModel(LeagueModel):

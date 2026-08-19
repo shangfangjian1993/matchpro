@@ -47,6 +47,7 @@ def _feature_flag(name: str, default: bool = True) -> bool:
 # 特征选择时排除的列(非特征列 + 结果/比分列,防止数据泄漏)
 EXCLUDE_COLUMNS = {
     "date",
+    "match_id",
     "league",
     "season",
     "stage",
@@ -87,6 +88,29 @@ class BaseFootballModel(ABC):
     # ------------------------------------------------------------------
 
     @staticmethod
+    def _hist_matches_from_df(data: pd.DataFrame):
+        """C 阶段:从 data.match_id 反查 Match ORM(行序对齐,Stats 特征族用)。
+
+        无 match_id 列/无有效 id → None(旧行为,不引入 stats)。
+        """
+        if "match_id" not in data.columns:
+            return None
+        ids = [
+            int(x)
+            for x in data["match_id"].tolist()
+            if x is not None and not pd.isna(x)
+        ]
+        if not ids:
+            return None
+        from app.api.db import Match
+
+        _orm = {r.id: r for r in Match.query.filter(Match.id.in_(ids)).all()}
+        return [
+            _orm.get(int(x)) if (x is not None and not pd.isna(x)) else None
+            for x in data["match_id"].tolist()
+        ]
+
+    @staticmethod
     def _sort_by_date(data: pd.DataFrame) -> pd.DataFrame:
         """按 date 排序(mergesort 稳定),无 date 或全 NaN 时保持原序。"""
         if "date" in data.columns and not data["date"].isna().all():
@@ -107,9 +131,10 @@ class BaseFootballModel(ABC):
 
         def _is_raw_side_col(c: str) -> bool:
             # 当场统计源列(home_xg/away_shots...)赛后可知,必须排除;
-            # 滚动特征列是 home_team_*/away_team_* 形式,不受影响
+            # 滚动特征列 home_team_*/away_team_* 与 stats 滚动
+            # home_tms_*/away_tms_*(赛前可得的球队历史统计)不排除。
             return (c.startswith(("home_", "away_"))) and not (
-                c.startswith(("home_team_", "away_team_"))
+                c.startswith(("home_team_", "away_team_", "home_tms_", "away_tms_"))
             )
 
         return [
@@ -138,8 +163,10 @@ class BaseFootballModel(ABC):
         # 按时间排序,保证 holdout 切分是时间序(防泄漏)
         data = self._sort_by_date(data)
 
-        # 准备数据
-        prepared_data = self.prepare_features(data)
+        # 准备数据(C 阶段:hist_matches 由 match_id 反查,Stats 特征族进入训练)
+        prepared_data = self.prepare_features(
+            data, hist_matches=self._hist_matches_from_df(data)
+        )
 
         # 选择特征
         feature_columns = self._select_feature_columns(prepared_data, target_column)
@@ -235,8 +262,10 @@ class BaseFootballModel(ABC):
         # 按时间排序,保证待预测行(通常是最后一行)的滚动特征正确
         data = self._sort_by_date(data)
 
-        # 准备数据
-        prepared_data = self.prepare_features(data)
+        # 准备数据(C 阶段:hist_matches 由 match_id 反查,Stats 特征族进入预测)
+        prepared_data = self.prepare_features(
+            data, hist_matches=self._hist_matches_from_df(data)
+        )
 
         # 特征白名单:优先用训练时保存的列;训练列缺失时回退到白名单推断
         if self.feature_columns_:

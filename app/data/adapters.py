@@ -41,6 +41,7 @@ def matches_to_dataframe(
     rows = []
     for m in matches:
         row = {
+            "match_id": getattr(m, "id", None),
             "date": m.match_date,
             "home_team": m.home_team,
             "away_team": m.away_team,
