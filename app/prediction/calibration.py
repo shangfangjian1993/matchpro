@@ -50,7 +50,6 @@ def apply(result: dict, models_dir: str, league_type) -> tuple[dict, dict | None
     except Exception as e:
         import logging
 
-
         logging.getLogger(__name__).warning("校准应用失败(降级为未校准概率): %s", e)
         degraded = True
     return result, cal_info, degraded
