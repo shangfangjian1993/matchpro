@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from app.models.ensemble import (
     dc_probs,
+    fuse_probs,
     fuse_score_matrix,
     match_probs,
     nb_probs,
@@ -36,49 +37,66 @@ def compute_members(
     lam_bh: float | None = None,
     lam_ba: float | None = None,
 ) -> dict:
-    """四成员概率 + 比分矩阵 + Score Outputs + 融合 λ。
+    """三层真实计算(审查 e752f5f P1-17:存储分层 == 计算分层)。
 
-    lam_eh/lam_ea: ELO-Goal 成员 λ(已含伤停乘数)。
+    Layer-1 Goal λ Ensemble:  goal_lambda(hgbr/elo/bayes) → fused λ
+    Layer-2 Score Distribution: Shape Ensemble —— Base Poisson(DC/NB 均
+        基于 **fused λ**,非 hgbr λ):matrix = w_pois·Poi(λ̄) + w_dc·DC(λ̄) + w_nb·NB(λ̄)
+        1X2 同理。Poisson 与 DC/NB 是层级关系,不是平行独立模型。
+    Layer-3 Outcome GBM: 独立 1X2(engine 内 fuse_goal_outcome,不进矩阵)。
+
+    members 仍保留各成员 1X2(组件审计/Ablation 用)。
     """
     from app.models.ensemble import _dc_matrix, _nb_matrix, _pois_matrix
+    from app.models.ensemble.weights import to_layered
 
+    lay = to_layered(weights)
+    gl = lay["goal_lambda"]
+    sd = lay["score_distribution"]
+
+    # Layer-1:独立 λ 融合(hgbr/elo/bayes;bayes 兜底=hgbr 与旧矩阵口径一致)
+    bh_ = lam_bh if lam_bh is not None else lam_h
+    ba_ = lam_ba if lam_ba is not None else lam_a
+    _gs = gl.get("hgbr", 0.0) + gl.get("elo", 0.0) + gl.get("bayes", 0.0)
+    if _gs <= 0:
+        fh, fa = lam_h, lam_a
+    else:
+        fh = (
+            gl.get("hgbr", 0.0) * lam_h
+            + gl.get("elo", 0.0) * lam_eh
+            + gl.get("bayes", 0.0) * bh_
+        ) / _gs
+        fa = (
+            gl.get("hgbr", 0.0) * lam_a
+            + gl.get("elo", 0.0) * lam_ea
+            + gl.get("bayes", 0.0) * ba_
+        ) / _gs
+
+    # Layer-2:Shape Ensemble(全部基于 fused λ)—— Poison 基 + DC + NB
+    pois_p, dc_p, nb_p = (
+        match_probs(fh, fa),
+        dc_probs(fh, fa, tau),
+        nb_probs(fh, fa, phi),
+    )
+    shape_1x2 = fuse_probs({"poisson": pois_p, "dc": dc_p, "nb": nb_p}, sd)
+    pm = _pois_matrix(fh, fa)
+    dm = _dc_matrix(fh, fa, tau)
+    nm = _nb_matrix(fh, fa, phi)
+    fused_matrix = fuse_score_matrix({"poisson": pm, "dc": dm, "nb": nm}, sd)
+    score_out = score_outputs(fused_matrix)
+    # 各成员 1X2(审计/组件化 Ablation 用;E 级 = shape_1x2)
     members = {
         "hgbr": match_probs(lam_h, lam_a),
         "dc": dc_probs(lam_h, lam_a, tau),
         "nb": nb_probs(lam_h, lam_a, phi),
         "elo": match_probs(lam_eh, lam_ea),
-        # 审查九 P1-10:层次贝叶斯成员(联赛先验×攻防收缩;无样本=先验)
-        "bayes": match_probs(lam_bh or lam_h, lam_ba or lam_a),
+        "bayes": match_probs(bh_, ba_),
     }
-    matrices = {
-        "hgbr": _pois_matrix(lam_h, lam_a),
-        "dc": _dc_matrix(lam_h, lam_a, tau),
-        "nb": _nb_matrix(lam_h, lam_a, phi),
-        "elo": _pois_matrix(lam_eh, lam_ea),
-        "bayes": _pois_matrix(lam_bh or lam_h, lam_ba or lam_a),
-    }
-    fused_matrix = fuse_score_matrix(matrices, weights)
-    score_out = score_outputs(fused_matrix)
-    # 审查 P1-7:快照需冻结 score matrix(Replay 不得用 λ 重算,否则算法
-    # 改动会改变历史快照结果);fused_matrix 直接给 Snapshot 落库
-    wh = weights.get("hgbr", 1.0) + weights.get("dc", 0.0) + weights.get("nb", 0.0)
-    we = weights.get("elo", 0.0)
-    wb = weights.get("bayes", 0.0)
-    wg = wh + we + wb
-    # 审查 A70A601 P0-2:Bayes 参与 score matrix,则其 λ 必须进入 fused λ,
-    # 否则"预测进球(fused λ)"与"expected_xg(矩阵期望)"分属不同概率体系。
-    # bayes 兜底 lam_bh or lam_h 与 matrix 成员一致(_pois_matrix(lam_bh or lam_h)),
-    # 保证同源 → 各成员 λ 全部计入后 fused λ ≈ 矩阵期望。
-    if wg > 0:
-        fused_lams = (
-            (wh * lam_h + we * lam_eh + wb * (lam_bh or lam_h)) / wg,
-            (wh * lam_a + we * lam_ea + wb * (lam_ba or lam_a)) / wg,
-        )
-    else:
-        fused_lams = (lam_h, lam_a)
     return {
         "members": members,
         "score_out": score_out,
-        "fused_lams": fused_lams,
+        "fused_lams": (fh, fa),
         "fused_matrix": fused_matrix,
+        "shape_1x2": shape_1x2,
+        "layer_weights": lay,
     }

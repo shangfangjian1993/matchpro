@@ -134,23 +134,20 @@ def test_gbm_does_not_change_lambda():
 
 
 def test_goal_weights_normalize():
-    """fused λ = Goal 成员权重的归一化加权平均(不被 GBM 稀释)。"""
+    """fused λ = Goal 层(hgbr/elo/bayes)权重的归一化加权平均(不被 DC/NB/GBM 稀释)。"""
     from app.prediction.goal_engine import compute_members
 
     out = compute_members(1.5, 1.2, 1.8, 1.0, 0.05, 30.0, _base_weights(0.2))
-    wh = 0.60 + 0.20 + 0.05
-    wg = wh + 0.15
-    exp_h = wh / wg * 1.5 + 0.15 / wg * 1.8
-    exp_a = wh / wg * 1.2 + 0.15 / wg * 1.0
+    _g = 0.60 + 0.15  # 三层:goal_lambda 层只含 hgbr/elo(此处无 bayes)
+    exp_h = 0.60 / _g * 1.5 + 0.15 / _g * 1.8
+    exp_a = 0.60 / _g * 1.2 + 0.15 / _g * 1.0
     assert abs(out["fused_lams"][0] - exp_h) < 1e-12
     assert abs(out["fused_lams"][1] - exp_a) < 1e-12
     # 权重和为 1 时应严格等于加权平均(验证 λ 不缩放)
     w1 = {"hgbr": 0.6, "dc": 0.2, "nb": 0.05, "elo": 0.15, "gbm": 0.0}
     out1 = compute_members(1.5, 1.2, 1.8, 1.0, 0.05, 30.0, w1)
-    assert (
-        abs(out1["fused_lams"][0] - (0.6 * 1.5 + 0.2 * 1.5 + 0.05 * 1.5 + 0.15 * 1.8))
-        < 1e-12
-    )
+    _g1 = 0.6 + 0.15
+    assert abs(out1["fused_lams"][0] - (0.6 / _g1 * 1.5 + 0.15 / _g1 * 1.8)) < 1e-12
 
 
 # ── 三十三:Ensemble 一致性 ─────────────────────────────────────────────────

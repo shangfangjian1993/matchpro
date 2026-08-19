@@ -103,7 +103,7 @@ class PredictionEngine:
 
         # ══ P0-Core:Goal/Ensemble 核心 —— 失败直接 raise,不静默降级 ══
         try:
-            from app.models.ensemble import elo_goal_lambda, fuse_probs, load_weights
+            from app.models.ensemble import elo_goal_lambda, load_weights
 
             _w = load_weights(league_type.value)
             # 权重结构校验(审查十 P0-1:权重损坏不得静默)
@@ -187,7 +187,8 @@ class PredictionEngine:
             home_lambda, away_lambda = g["fused_lams"]
             _check_lambda(home_lambda, name="fused λ_home")
             _check_lambda(away_lambda, name="fused λ_away")
-            _goal_probs = fuse_probs(_members, _w)
+            # 三层计算:Goal 1X2 = Shape Ensemble(fused λ 的 Poi/DC/NB)
+            _goal_probs = g["shape_1x2"]
 
             # P1-Degraded:GBM 可选成员
             _gbm_probs = None
