@@ -48,25 +48,20 @@ def _key() -> str:
                     k = line.split("=", 1)[1].strip()
                     break
         return k
-
     def available() -> bool:
         return bool(_key())
-
     def _get(path: str, params: dict | None = None) -> dict:
         import json
         import time
         import urllib.request
-
         url = f"{BASE.replace('_', '')}{path.lstrip('/')}"
         if params:
             import urllib.parse
-
             url += "?" + urllib.parse.urlencode(
                 {k: v for k, v in params.items() if v is not None}
             )
         req = urllib.request.Request(
-            url,
-            headers={"Authorization": f"Token {_key()}", "Accept": "application/json"},
+            url, headers={"Authorization": f"Token {_key()}", "Accept": "application/json"}
         )
         for attempt in range(3):
             try:
@@ -80,7 +75,6 @@ def _key() -> str:
             except Exception:
                 time.sleep(1.0)
         raise RuntimeError("bzzoiro 请求重试耗尽")
-
     def fetch_events(
         league_id: int | None = None,
         status: str | None = None,
@@ -90,20 +84,11 @@ def _key() -> str:
         """历史/未来事件(分页)。"""
         d = _get(
             "/events/",
-            {
-                "league_id": league_id,
-                "status": status,
-                "limit": limit,
-                "offset": offset,
-            },
+            {"league_id": league_id, "status": status, "limit": limit, "offset": offset},
         )
         return d.get("results") or []
-
     def fetch_odds(
-        event_id: int | None = None,
-        market: str = "1x2",
-        limit: int = 50,
-        offset: int = 0,
+        event_id: int | None = None, market: str = "1x2", limit: int = 50, offset: int = 0
     ) -> list[dict]:
         """盘口(默认 consensus 1x2)。"""
         d = _get(
@@ -111,7 +96,6 @@ def _key() -> str:
             {"event_id": event_id, "market": market, "limit": limit, "offset": offset},
         )
         return d.get("results") or []
-
     def find_league(name: str) -> int | None:
         """按名称(子串,不敏感)找 league_id。"""
         for off in (0, 50):
@@ -119,11 +103,9 @@ def _key() -> str:
                 if name.lower() in (lg.get("name") or "").lower():
                     return lg.get("id")
         return None
-
     def _leagues_page(offset: int = 0) -> list[dict]:
         d = _get("/leagues/", {"limit": 50, "offset": offset})
         return d.get("results") or []
-
     # LeagueType.value → bzzoiro league_id
     LEAGUE_IDS = {
         "premier_league": 1,
@@ -136,7 +118,6 @@ def _key() -> str:
     }
     import datetime as _dt
     import time as _time
-
     def to_normalized(raw: dict, league_type_value: str) -> NormalizedMatch:
         """bzzoiro event → NormalizedMatch(upsert 幂等)。"""
         date = _dt.datetime.fromisoformat(raw["event_date"].replace("Z", "+00:00"))
@@ -162,11 +143,9 @@ def _key() -> str:
             season_label=_season_label(date),
             match_stage=str(raw.get("round_name") or raw.get("stage") or ""),
         )
-
     def _season_label(date: _dt.datetime) -> str:
         y = date.year if date.month >= 8 else date.year - 1
         return f"{y}-{y + 1}"
-
     def import_league(
         league_type_value: str, since_year: int | None = None, verbose: bool = True
     ) -> dict:
@@ -174,7 +153,6 @@ def _key() -> str:
         返回 {"fetched": n, "inserted": n, "updated": n, "skipped": n, "errors": n}。
         """
         from app.data.canonical.ingest import upsert_matches
-
         league_id = LEAGUE_IDS.get(league_type_value)
         if league_id is None:
             raise ValueError(f"bzzoiro 未映射: {league_type_value}")
@@ -196,9 +174,7 @@ def _key() -> str:
                 batch = [
                     b
                     for b in batch
-                    if _dt.datetime.fromisoformat(
-                        b["event_date"].replace("Z", "+00:00")
-                    )
+                    if _dt.datetime.fromisoformat(b["event_date"].replace("Z", "+00:00"))
                     .date()
                     .year
                     >= since_year
@@ -220,17 +196,14 @@ def _key() -> str:
                 flush=True,
             )
         return res
-
     def _norm(name: str) -> str:
         """队名归一(与 api-football 一致风格,用于 bzzoiro↔fdco 对齐)。"""
         import re
-
         n = str(name).lower()
         n = re.sub(r"\b(fc|cf|sc|afc|acf|wanderers|club)\b", " ", n)
         n = re.sub(r"[^a-z0-9 ]", " ", n)
         n = re.sub(r"\s+", " ", n).strip()
         return n
-
     def merge_league(
         league_type_value: str, since_year: int | None = None, verbose: bool = True
     ) -> dict:
@@ -241,7 +214,6 @@ def _key() -> str:
         """
         from app.api.db import League, Match, db, session_scope
         from app.data.canonical.ingest import upsert_matches
-
         league_id = LEAGUE_IDS.get(league_type_value)
         if league_id is None:
             raise ValueError(f"bzzoiro 未映射: {league_type_value}")
@@ -263,9 +235,7 @@ def _key() -> str:
                 batch = [
                     b
                     for b in batch
-                    if _dt.datetime.fromisoformat(
-                        b["event_date"].replace("Z", "+00:00")
-                    )
+                    if _dt.datetime.fromisoformat(b["event_date"].replace("Z", "+00:00"))
                     .date()
                     .year
                     >= since_year
@@ -289,7 +259,6 @@ def _key() -> str:
                 hn, an = _norm(m.home_team), _norm(m.away_team)
                 norm_index.setdefault((hn, an), []).append(m)
                 norm_index.setdefault((an, hn), []).append(m)  # 主场对调容错
-
             def _find(raw):
                 hn, an = _norm(raw["home_team"]), _norm(raw["away_team"])
                 d0 = _dt.datetime.fromisoformat(
@@ -299,7 +268,6 @@ def _key() -> str:
                     if abs((m.match_date.date() - d0).days) <= 1:
                         return m
                 return None
-
             for r in rows:
                 try:
                     nm = to_normalized(r, league_type_value)
@@ -332,7 +300,6 @@ def _key() -> str:
             "inserted": res["inserted"],
             "errors": errors + len(res.get("errors", [])),
         }
-
     # ── 子资源采集:stats → team_match_stats;odds → match_odds ──────────────
     _STATS_MAP = {
         "expected_goals": "xg",
@@ -353,11 +320,9 @@ def _key() -> str:
         "shots_inside_box": "shots_inside_box",
         "shots_outside_box": "shots_outside_box",
     }
-
     def _event_match_index(league_type_value: str):
         """(date, home_norm, away_norm) → Match(主客对调也收录)。"""
         from app.api.db import League, Match
-
         league = League.query.filter_by(league_type=league_type_value).first()
         out = {}
         if league is None:
@@ -368,17 +333,12 @@ def _key() -> str:
             out.setdefault(key, []).append(m)
             out.setdefault((str(m.match_date.date()), an, hn), []).append(m)
         return out
-
     def _find_match(idx, raw):
         import datetime as dt
-
         d0 = dt.datetime.fromisoformat(raw["event_date"].replace("Z", "+00:00")).date()
-        for m in idx.get(
-            (str(d0), _norm(raw["home_team"]), _norm(raw["away_team"])), []
-        ):
+        for m in idx.get((str(d0), _norm(raw["home_team"]), _norm(raw["away_team"])), []):
             return m
         return None
-
     def ingest_stats(
         league_type_value: str,
         limit_events: int | None = None,
@@ -390,7 +350,6 @@ def _key() -> str:
         返回 {"events": n, "matched": n, "updated_stats": n, "errors": n}。
         """
         from app.api.db import TeamMatchStats, db, session_scope
-
         _idx = _event_match_index(league_type_value)
         events = []
         if limit_events:
@@ -443,11 +402,7 @@ def _key() -> str:
                                     if isinstance(v, (int, float))
                                     and not isinstance(v, bool)
                                     and float(v).is_integer()
-                                    else (
-                                        float(v)
-                                        if isinstance(v, (int, float))
-                                        else None
-                                    )
+                                    else (float(v) if isinstance(v, (int, float)) else None)
                                 )
                         if row is None:
                             db.session.add(TeamMatchStats(**data))
@@ -471,7 +426,6 @@ def _key() -> str:
             "updated": updated,
             "errors": errors,
         }
-
     def ingest_odds(
         league_type_value: str,
         limit_events: int | None = None,
@@ -480,7 +434,6 @@ def _key() -> str:
     ) -> dict:
         """逐场拉收盘 odds → match_odds(upsert by match_id)。"""
         from app.api.db import db, session_scope
-
         _idx = _event_match_index(league_type_value)
         events = []
         if limit_events:
@@ -507,7 +460,6 @@ def _key() -> str:
                     break
                 _time.sleep(0.3)
         from app.api.db import MatchOdds
-
         matched = written = errors = 0
         with session_scope():
             for e in events:
@@ -559,7 +511,6 @@ def _key() -> str:
             "written": written,
             "errors": errors,
         }
-
     def import_recent(
         league_type_value: str, seasons: int = 1, verbose: bool = True
     ) -> dict:
@@ -568,14 +519,11 @@ def _key() -> str:
         对命中页逐场 merge 更新比分/半场。返回 {"fetched","updated","inserted"}。
         """
         from app.api.db import League, Match, db, session_scope
-
         league_id = LEAGUE_IDS.get(league_type_value)
         if league_id is None:
             raise ValueError(f"bzzoiro 未映射: {league_type_value}")
         # 最新事件日 → 截止
-        d0 = _get(
-            "/events/", {"league_id": league_id, "status": "finished", "limit": 1}
-        )
+        d0 = _get("/events/", {"league_id": league_id, "status": "finished", "limit": 1})
         latest = _dt.datetime.fromisoformat(
             d0["results"][0]["event_date"].replace("Z", "+00:00")
         )
@@ -615,9 +563,7 @@ def _key() -> str:
             for e in rows:
                 try:
                     nm = to_normalized(e, league_type_value)
-                    cands = (
-                        existing.get((_norm(nm.home_team), _norm(nm.away_team))) or []
-                    )
+                    cands = existing.get((_norm(nm.home_team), _norm(nm.away_team))) or []
                     old = next(
                         (
                             m
@@ -638,7 +584,6 @@ def _key() -> str:
                     errors += 1
             db.session.flush()
         from app.data.canonical.ingest import upsert_matches
-
         r = (
             upsert_matches(inserted_list)
             if inserted_list
