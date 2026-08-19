@@ -46,6 +46,13 @@ class ContextBuilder:
             raise ValueError("主队和客队不能相同")
         home_team = to_en(home_team)
         away_team = to_en(away_team)
+        # 审查 A70A601 §十五 + A 专项:队名归一化 —— 内存层统一规范名
+        # ('AFC Bournemouth' 与 'Bournemouth' 合并为同 key),否则 FC/AFC
+        # 后缀分裂令 known_teams 定位失败、特征 per-team 分组撕裂。
+        from app.data.canonical.team_names import canonical_en
+
+        home_team = canonical_en(home_team)
+        away_team = canonical_en(away_team)
 
         league = League.query.filter_by(league_type=league_type.value).first()
         if league is None:
@@ -78,6 +85,15 @@ class ContextBuilder:
         )
         if hist_df.empty:
             raise ValueError("数据库中没有历史比赛数据,无法构造赛前特征")
+        # 队名归一化:历史 two 份格式(FC/AFC)统一为同一规范 key,保证
+        # 已知队集合与 per-team 特征分组一致(内存层,不改库/快照)
+        _ce = __import__(
+            "app.data.canonical.team_names", fromlist=["canonical_en"]
+        ).canonical_en
+        hist_df = hist_df.assign(
+            home_team=hist_df["home_team"].map(_ce),
+            away_team=hist_df["away_team"].map(_ce),
+        )
 
         known_teams = set(hist_df["home_team"]) | set(hist_df["away_team"])
         unknown = [t for t in (home_team, away_team) if t not in known_teams]

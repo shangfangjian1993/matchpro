@@ -407,3 +407,22 @@ NORMALIZE_MAP.update(
         "Zaragoza": "Real Zaragoza",
     }
 )
+
+
+def canonical_en(name: str) -> str:
+    """特征/定位层统一英文规范名(审查 A70A601 §十五 + A 专项:队名归一化)。
+
+    不改写历史/快照 —— 仅用于**内存层**：
+      · 先经 normalize(官方全称,如 'Manchester City FC')
+      · 剥法律后缀(FC/AFC/CF/SC/AC)+ 小写压缩 → 同源合并 key
+        ('AFC Bournemouth' 与 'Bournemouth' → 'bournemouth';
+         'Manchester City FC' 与 'Manchester City' → 'manchester city')
+    用于:context 历史定位 known_teams、特征 per-team 分组、跨源对账。
+    DB 写入仍走 normalize(保留官方全称),不改变已存 data_hash。
+    """
+    import re as _re
+
+    n = normalize(name or "")
+    n = _re.sub(r"\b(FC|AFC|CF|SC|AC)\b", " ", n, flags=_re.IGNORECASE)
+    n = _re.sub(r"[^a-z0-9 ]", " ", n.lower())
+    return " ".join(n.split())
