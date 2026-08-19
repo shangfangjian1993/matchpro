@@ -95,6 +95,7 @@ class PredictionEngine:
         _h_mult, _a_mult = ctx.get("injury_mult", (1.0, 1.0))
         _degraded_components = list(ctx.get("degraded_components", []))
         _failure_codes = list(ctx.get("failure_codes", []))
+        _informational_codes: list = []
         # 审查 ac2196b §9:ctx 已携带降级组件/失败码时,status 必须反映 degraded,
         # 不得因 _degraded 初始 False 而把"存在降级"错误报成 ok
         _degraded = bool(_degraded_components or _failure_codes)
@@ -247,7 +248,7 @@ class PredictionEngine:
                     for f, v in _pairs
                 ]
             else:
-                _failure_codes.append("FEATURE_IMPACT_UNAVAILABLE")
+                _informational_codes.append("FEATURE_IMPACT_UNAVAILABLE")
         except Exception:
             _feature_impact = []
 
@@ -281,9 +282,9 @@ class PredictionEngine:
             "match_date": match_dt.isoformat()
             if hasattr(match_dt, "isoformat")
             else str(match_dt),
-            "prediction_status": "degraded" if _degraded else "ok",
             "degraded_components": _degraded_components,
             "failure_codes": _failure_codes,
+            "informational_codes": _informational_codes,
             "lineup_strength": ctx.get("lineup"),
         }
 
@@ -334,7 +335,6 @@ class PredictionEngine:
             _failure_codes.append("OPTIONAL_PRIOR_UNAVAILABLE")
             logger.warning("prior blend 失败(降级为未混合概率): %s", _pe)
             _degraded = True
-            result["prediction_status"] = "degraded" if _degraded else "ok"
 
         # ══ P0-2:Calibration 校准**最终输出**概率(IPF 之后)══
         # 审查 f01d7e4 P1-6:记录校准**输入**(blend+IPF 后的最终 1X2,校准前),
@@ -352,8 +352,6 @@ class PredictionEngine:
             _degraded_components.append("calibration")
             _failure_codes.append("CALIBRATION_UNAVAILABLE")
         _degraded = _degraded or _cal_degraded
-        result["prediction_status"] = "degraded" if _degraded else "ok"
-
         # ══ P0-3:二次 IPF —— 校准后 1X2 回写矩阵,保证矩阵边缘 == 最终 1X2 ══
         # 审查 A70A601 P0-1:无论 Prior Blend 是否可用(m2 为 None 时降级为
         # 原始 fused_matrix),**都必须**执行最终 IPF。否则 blend 不可用场景
@@ -397,6 +395,12 @@ class PredictionEngine:
                 "SCORE_MATRIX_FAILURE", f"最终矩阵导出失败: {_se}"
             ) from _se
 
+        # 审查 e752f5f:prediction_status 末次统一(不再中途维护 —— 任何后续
+        # failure/informational 都纳入);FEATURE_IMPACT 等 P2 信息单列。
+        result["prediction_status"] = (
+            "degraded" if (_degraded_components or _failure_codes) else "ok"
+        )
+        result["informational_codes"] = _informational_codes
         result["_internal"] = {
             "home_lambda": home_lambda,
             "away_lambda": away_lambda,

@@ -120,7 +120,7 @@ def _key() -> str:
             cursor = batch[-1].get("id") if batch else None
             time.sleep(REQUEST_INTERVAL)
         normalized = [to_normalized(r, league_type_value, year) for r in rows]
-        res = upsert_matches(normalized)
+        res = upsert_matches(normalized, source="zafronix")
         if verbose:
             print(
                 f"  {league_type_value} {year}: 拉取 {len(rows)} 场 → "

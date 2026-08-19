@@ -220,7 +220,7 @@ def import_league(
             break
         _time.sleep(0.35)  # 免费套餐稳健
     normalized = [to_normalized(r, league_type_value) for r in rows]
-    res = upsert_matches(normalized)
+    res = upsert_matches(normalized, source="bzzoiro")
     res["fetched"] = len(rows)
     if verbose:
         print(
@@ -328,7 +328,7 @@ def merge_league(
                 errors += 1
         db.session.flush()
     res = (
-        upsert_matches(insert_new)
+        upsert_matches(insert_new, source="bzzoiro")
         if insert_new
         else {"inserted": 0, "updated": 0, "skipped": 0, "errors": []}
     )
@@ -651,7 +651,7 @@ def import_recent(
     from app.data.canonical.ingest import upsert_matches
 
     r = (
-        upsert_matches(inserted_list)
+        upsert_matches(inserted_list, source="bzzoiro")
         if inserted_list
         else {"inserted": 0, "updated": 0, "skipped": 0, "errors": []}
     )

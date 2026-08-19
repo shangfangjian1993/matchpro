@@ -69,17 +69,19 @@ class ContextBuilder:
         matched_match_id = matched.id if matched else None
         match_dt = pd.Timestamp(match_date) if match_date else pd.Timestamp.now()
 
-        history = Match.query.filter_by(
-            league_id=league.id, match_status="finished"
-        ).all()
+        # 审查 e752f5f P1:数据库层过滤/排序/LIMIT(不再整联赛 .all() 后 Python 处理)。
+        # hist_limit 语义 = global chronological history(联赛级最近 N 场,时间窗口);
+        # 团队级滚动由后续特征层在 hist_df 内按队计算,此处只约束时间范围上限。
+        _q = Match.query.filter(
+            Match.league_id == league.id, Match.match_status == "finished"
+        )
         if match_dt is not None:
-            history = [m for m in history if pd.Timestamp(m.match_date) < match_dt]
-        # 审查 ac2196b 关联修复:默认行序非时间序(rowid 受迁移/批量导入打乱),
-        # 必须显式按比赛时间升序 —— 否则 hist_limit 截取到任意错乱窗口(曾取到
-        # 1992 年段),既有时序泄漏风险(窗口含未来场次),又令球队定位失败。
-        history.sort(key=lambda x: pd.Timestamp(x.match_date))
-        if hist_limit is not None and len(history) > hist_limit:
-            history = history[-hist_limit:]
+            _q = _q.filter(Match.match_date < match_dt)
+        _q = _q.order_by(Match.match_date.desc())
+        if hist_limit is not None:
+            _q = _q.limit(hist_limit)
+        history = list(_q.all())
+        history.sort(key=lambda x: pd.Timestamp(x.match_date))  # 升序供滚动特征
         hist_df = matches_to_dataframe(
             history, league_name=league.name, league_season=league.season or ""
         )
@@ -201,18 +203,38 @@ class ContextBuilder:
                 _degraded_components.append("injury")
                 _failure_codes.append("INJURY_CACHE_MISSING")
         except Exception as _ie:
+            # 审查 e752f5f:伤停降级按异常类型细分(网络/schema/其他),便于监控
             _degraded_components.append("injury")
-            _failure_codes.append("INJURY_PARSE_ERROR")
+            import urllib.error
+
+            if isinstance(
+                _ie,
+                (urllib.error.URLError, TimeoutError, ConnectionError, OSError),
+            ):
+                _failure_codes.append("INJURY_NETWORK_ERROR")
+            elif isinstance(_ie, (KeyError, TypeError, ValueError, IndexError)):
+                _failure_codes.append("INJURY_SCHEMA_ERROR")
+            else:
+                _failure_codes.append("INJURY_PARSE_ERROR")
             logger.warning("伤停层降级: %s", _ie)
 
-        # bayes λ(审查 P1-10)
-        _lam_bh = _lam_ba = None
-        try:
-            from app.models.bayes_team import bayes_lambda
+        # bayes λ:可将降级(数据不足→先验)与异常(实现/数学错误)分开。
+        # 数据不足(hist_df 空)→ 视为预期不可用(降级,保留先验);
+        # 其他异常(schema/数学/code bug)→ 抛 FeatureComputationError,不吞。
+        from app.core.exceptions import FeatureComputationError
 
-            _lam_bh, _lam_ba = bayes_lambda(hist_df, home_team, away_team)
-        except Exception:
-            _lam_bh = _lam_ba = None
+        _lam_bh = _lam_ba = None
+        if hist_df is not None and not hist_df.empty:
+            try:
+                from app.models.bayes_team import bayes_lambda
+
+                _lam_bh, _lam_ba = bayes_lambda(hist_df, home_team, away_team)
+            except Exception as _be:
+                raise FeatureComputationError(f"Bayes λ 计算失败: {_be}") from _be
+        else:
+            # 无历史数据 → 预期不可用(降级为 None,engine 兜底用 hgbr λ)
+            _degraded_components.append("bayes")
+            _failure_codes.append("BAYES_UNAVAILABLE")
 
         return {
             "league_type": league_type,

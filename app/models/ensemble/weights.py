@@ -96,7 +96,10 @@ def learn_weights(
     GBM 不可用(加载失败/预测失败)→ 完全从优化中移除,而非以 [0,0,0] 假装存在。
     """
     names_all = ["hgbr", "dc", "nb", "elo", "gbm", "bayes"]
-    present = [n for n in names_all if any(n in s for s in samples)]
+    # 审查 e752f5f :成员必须**在每个样本**都存在才参与优化 —— 否则
+    # 部分缺失成员在融合循环会 KeyError(materialize),且优化用全部样本分母
+    _effective = {n: sum(1 for s in samples if n in s) for n in names_all}
+    present = [n for n in names_all if _effective[n] >= max(1, 0.9 * len(samples))]
     n = max(1, len(samples))
 
     # 审查 A70A601 §16:Baseline-aware prior —— 不再默认 "hgbr=1、其余 0"。
@@ -155,6 +158,8 @@ def learn_weights(
         for s in samples:
             p = np.zeros(3)
             for i, name in enumerate(present):
+                if name not in s:
+                    continue  # 该样本无此成员:mask(不贡献、不报错)
                 p += w[i] * np.asarray(s[name])
             p = np.clip(p, 1e-12, None)
             p = p / p.sum()
@@ -166,6 +171,8 @@ def learn_weights(
         for s in samples:
             p = np.zeros(3)
             for i, name in enumerate(present):
+                if name not in s:
+                    continue  # 缺失成员 mask
                 p += w[i] * np.asarray(s[name])
             p = np.clip(p, 1e-12, None)
             p = p / p.sum()
@@ -185,7 +192,12 @@ def learn_weights(
 
     from scipy.optimize import minimize
 
-    w0 = np.array([1.0 if name == "hgbr" else 0.0 for name in present])
+    # 初始点 = 基线先验(可行:每维 ≤ max_weight、和为 1)—— 不从 infeasible 点开始
+    w0 = np.asarray(_prior, dtype=float).copy()
+    if w0.sum() > 0:
+        w0 = w0 / w0.sum() * min(1.0, max_weight * len(w0))
+    w0 = np.clip(w0, 0.0, max_weight)
+    w0 = w0 / w0.sum() if w0.sum() > 0 else np.full(len(present), 1.0 / len(present))
     res = minimize(
         _nll,
         w0,
