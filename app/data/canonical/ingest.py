@@ -150,8 +150,8 @@ def upsert_matches(matches: list[NormalizedMatch], source: str = "canonical") ->
                 Match.query.filter_by(league_id=league.id).all()
             )
 
-            def _find_old(nm):
-                _r = _resolver.resolve(nm.home_team, nm.away_team, nm.date)
+            def _find_old(nm, _res=_resolver):
+                _r = _res.resolve(nm.home_team, nm.away_team, nm.date)
                 return _r.match, _r.orientation
 
             for nm in group:
