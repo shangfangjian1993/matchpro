@@ -178,6 +178,8 @@ class PredictionEngine:
             _members = g["members"]
             _score_out = g["score_out"]
             _fused_matrix = g.get("fused_matrix")
+            _raw_matrix_for_ablation = _fused_matrix
+            # 兼容:engine 可能早在下方重建;这里保留组件前原始矩阵供 A/B 审计
             if _fused_matrix is not None:
                 _fused_matrix = _fused_matrix.tolist()
             _check_matrix(_fused_matrix)
@@ -405,6 +407,7 @@ class PredictionEngine:
             "_pred_df": _pred_df,
             "_feat": _feat,
             "fused_matrix": _final_matrix,
+            "raw_fused_matrix": _raw_matrix_for_ablation,
             "cal_info": _cal_info,
             "degraded": _degraded,
             "degraded_components": _degraded_components,
@@ -412,7 +415,14 @@ class PredictionEngine:
             # —— Ablation 诊断字段(零行为影响;可复现链路上携带成员分解)——
             "members": _members,  # {hgbr,dc,nb,elo,bayes} 1X2(成员原始)
             "gbm_probs": _gbm_probs,  # GBM 1X2(可 None)
-            "member_weights": _w,  # 成员权重(含 gbm 键)
+            "member_weights": _w,
+            "member_lambdas": {
+                "hgbr": (_lam_h, _lam_a),
+                "dc": (_lam_h, _lam_a),
+                "nb": (_lam_h, _lam_a),
+                "elo": (_lam_eh, _lam_ea),
+                "bayes": (_lam_bh, _lam_ba),
+            },  # 成员权重(含 gbm 键)
             "tau": _tau,
             "phi": _phi,
         }
