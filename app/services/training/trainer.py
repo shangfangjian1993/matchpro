@@ -246,9 +246,11 @@ def train_model(
 
             _ev = results.get("evaluation") or results.get("training_metrics", {})
             _acc = (_ev.get("accuracy_metrics") or {}) if isinstance(_ev, dict) else {}
-            db.session.add(
-                Experiment(
-                    league_type=league_type.value,
+            # 审查修复:experiments 记录为非关键路径 —— 先 rollback 清掉训练期
+            # 遗留事务状态(此前撞 SQLite 写锁未 rollback,连锁污染全局 session,
+            # 导致后续联赛在同一破损 session 上全部 FAIL)
+            _exp_row = Experiment(
+                league_type=league_type.value,
                     dataset_version=f"matches_{len(df)}",
                     feature_version=str(getattr(model, "feature_version_", "unknown")),
                     model_version=str(version),
@@ -303,8 +305,25 @@ def train_model(
                     ),
                     data_hash=_hl.sha256(str(len(df)).encode()).hexdigest()[:16],
                 )
-            )
-            db.session.commit()
+            # 写锁退避重试:与采集并发写 SQLite 时 'database is locked' 属暂时,
+            # rollback 后重新 add(旧 pending 已 detach)再 commit;仍失败 → 仅告警,
+            # 不影响训练结果判定(此前 commit 撞锁未 rollback 连锁污染全局 session)
+            import time as _sleep_t
+
+            _attempt = 0
+            while True:
+                try:
+                    db.session.rollback()
+                    db.session.add(_exp_row)
+                    db.session.commit()
+                    break
+                except Exception as _er:
+                    _attempt += 1
+                    if _attempt > 3 or "locked" not in str(_er).lower():
+                        logger.warning("实验记录落库失败(训练不受影响): %s", _er)
+                        db.session.rollback()
+                        break
+                    _sleep_t.sleep(1.0 + _attempt * 1.5)
         except Exception:
             pass  # 实验记录失败不影响训练
     finally:
