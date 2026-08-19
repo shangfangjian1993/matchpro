@@ -8,6 +8,7 @@
 窗口机制:在目标时间 ±5 分钟内触发一次,然后睡眠到下一窗口,避免重复执行。
 日志:由 entrypoint 重定向到 /var/log/auto_sync.log。
 """
+
 import os
 import subprocess
 import sys
@@ -20,7 +21,7 @@ _SCHEDULE = [
     ("daily", None, 8, 0),
     ("daily", None, 22, 0),
     ("fixtures", None, 9, 30),
-    ("injury", None, 14, 0),   # 每日赛前拉当天伤停
+    ("injury", None, 14, 0),  # 每日赛前拉当天伤停
     ("weekly", 0, 3, 0),
     ("monthly", 0, 4, 0),  # 每月首日 04:00   # 周一凌晨
 ]
@@ -38,12 +39,24 @@ def _run(task: str) -> None:
     """执行任务(子进程,避免本进程异常影响调度循环)"""
     env = dict(os.environ)
     env["PYTHONPATH"] = os.pathsep.join(
-        [os.path.join(os.path.dirname(_SCRIPT), "..", "src"),
-         os.path.dirname(os.path.dirname(_SCRIPT))])
-    print(f"[scheduler] {datetime.now():%H:%M} 触发 {task}", flush=True)
+        [
+            os.path.join(os.path.dirname(_SCRIPT), "..", "src"),
+            os.path.dirname(os.path.dirname(_SCRIPT)),
+        ]
+    )
+    print(
+        f"[scheduler] {datetime.now(tz=datetime.timezone.utc):%H:%M} 触发 {task}",
+        flush=True,
+    )
     try:
-        r = subprocess.run([sys.executable, _SCRIPT, "--job", task],
-                           env=env, capture_output=True, text=True, timeout=1800)
+        r = subprocess.run(
+            [sys.executable, _SCRIPT, "--job", task],
+            env=env,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=1800,
+        )
         print(r.stdout, flush=True)
         if r.stderr:
             print(r.stderr, file=sys.stderr, flush=True)
@@ -53,12 +66,17 @@ def _run(task: str) -> None:
 
 
 def main() -> int:
-    print("[scheduler] 启动,计划: "
-          + ", ".join(f"{t} {w if w is not None else '每日'} {h:02d}:{m:02d}"
-                      for t, w, h, m in _SCHEDULE), flush=True)
+    print(
+        "[scheduler] 启动,计划: "
+        + ", ".join(
+            f"{t} {w if w is not None else '每日'} {h:02d}:{m:02d}"
+            for t, w, h, m in _SCHEDULE
+        ),
+        flush=True,
+    )
     last_run = {}  # (task, weekday) -> 日期,防止窗口内重复
     while True:
-        now = datetime.now()
+        now = datetime.now(tz=datetime.timezone.utc)
         for task, weekday, hour, minute in _SCHEDULE:
             key = (task, now.date())
             if _due(task, weekday, hour, minute, now) and key not in last_run:

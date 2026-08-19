@@ -1,4 +1,5 @@
 """V2 API 请求/响应模型(新设计:类型安全,Pydantic 校验)。"""
+
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -34,6 +35,7 @@ class PredictTournamentReq(BaseModel):
 
 class MatchCreate(BaseModel):
     """单场录入;指标列(白名单)经 extra 透传。"""
+
     model_config = ConfigDict(extra="allow")
 
     league_type: str
@@ -74,4 +76,3 @@ class ApiSettingsUpdate(BaseModel):
     enabled: bool | None = None
     rateLimit: int | None = Field(default=None, ge=1, le=100000)
     apiKey: str | None = None
-

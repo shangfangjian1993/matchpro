@@ -8,6 +8,7 @@
 拟合:fit_best() 在训练段拟合三种,评估段选 ECE 最低(联赛择优)。
 持久化:.cal 文件 {"method", "params"}(与模型版本同目录绑定)。
 """
+
 from __future__ import annotations
 
 import os
@@ -50,8 +51,9 @@ class Calibrator:
 
     # ---------------- 拟合 ----------------
     @classmethod
-    def fit_beta(cls, probs: np.ndarray, labels: np.ndarray,
-                 max_iter: int = 1000) -> Calibrator:
+    def fit_beta(
+        cls, probs: np.ndarray, labels: np.ndarray, max_iter: int = 1000
+    ) -> Calibrator:
         """Beta 校准(三分类):P_cal[i] ∝ exp(alpha_i + beta_i * log(p_i))。"""
         n, k = probs.shape
         alpha = np.zeros(k)
@@ -73,8 +75,10 @@ class Calibrator:
             grad = np.zeros_like(params)
             h = 1e-5
             for i in range(len(params)):
-                pp = params.copy(); pp[i] += h
-                pm = params.copy(); pm[i] -= h
+                pp = params.copy()
+                pp[i] += h
+                pm = params.copy()
+                pm[i] -= h
                 grad[i] = (_nll(pp) - _nll(pm)) / (2 * h)
             m = beta1 * m + (1 - beta1) * grad
             v = beta2 * v + (1 - beta2) * grad * grad
@@ -92,6 +96,7 @@ class Calibrator:
     def fit_platt(cls, probs: np.ndarray, labels: np.ndarray) -> Calibrator:
         """Platt:每类 logistic 回归(特征 = logit(p_i),评审 P1)。"""
         from sklearn.linear_model import LogisticRegression
+
         n, k = probs.shape
         coef, intercept = [], []
         for c in range(k):
@@ -110,6 +115,7 @@ class Calibrator:
     def fit_isotonic(cls, probs: np.ndarray, labels: np.ndarray) -> Calibrator:
         """Isotonic:每类等渗回归(非参数,评审 P1)。"""
         from sklearn.isotonic import IsotonicRegression
+
         n, k = probs.shape
         regs = []
         for c in range(k):
@@ -122,8 +128,13 @@ class Calibrator:
         return cal
 
     @classmethod
-    def fit_best(cls, probs: np.ndarray, labels: np.ndarray,
-                 val_fraction: float = 0.2, test_fraction: float = 0.0) -> Calibrator:
+    def fit_best(
+        cls,
+        probs: np.ndarray,
+        labels: np.ndarray,
+        val_fraction: float = 0.2,
+        test_fraction: float = 0.0,
+    ) -> Calibrator:
         """联赛择优(评审 P1 + 第五轮审查二十三)。
 
         三段切分(时间序):
@@ -144,14 +155,20 @@ class Calibrator:
         tr_p, tr_l = trva_p[:split], trva_l[:split]
         va_p, va_l = trva_p[split:], trva_l[split:]
         cands = []
-        for fitter, name in ((cls.fit_beta, "beta"), (cls.fit_platt, "platt"),
-                             (cls.fit_isotonic, "isotonic")):
+        for fitter, name in (
+            (cls.fit_beta, "beta"),
+            (cls.fit_platt, "platt"),
+            (cls.fit_isotonic, "isotonic"),
+        ):
             try:
                 cal = fitter(tr_p, tr_l)
                 cal_p = cal.apply_matrix(va_p)
                 ece = _ece_score(cal_p, va_l)
                 cands.append((ece, name, cal))
-            except Exception:
+            except Exception as _exc:
+                import logging as _lg
+
+                _lg.getLogger(__name__).debug("拟合候选失败,跳过: %s", _exc)
                 continue
         if not cands:
             return cls.identity()
@@ -159,9 +176,13 @@ class Calibrator:
         best = cands[0][2]
         # 全量(train+val)重训选中方法 —— 生产校准器用更多数据
         try:
-            best = cands[0][1] == "beta" and cls.fit_beta(trva_p, trva_l) or \
-                   cands[0][1] == "platt" and cls.fit_platt(trva_p, trva_l) or \
-                   cls.fit_isotonic(trva_p, trva_l)
+            best = (
+                cands[0][1] == "beta"
+                and cls.fit_beta(trva_p, trva_l)
+                or cands[0][1] == "platt"
+                and cls.fit_platt(trva_p, trva_l)
+                or cls.fit_isotonic(trva_p, trva_l)
+            )
         except Exception:
             best = cands[0][2]
         best.fitted_n = n
@@ -205,6 +226,7 @@ class Calibrator:
 
     def _apply_platt(self, p: np.ndarray) -> np.ndarray:
         from scipy.special import expit
+
         pc = np.clip(p, 1e-9, 1 - 1e-9)
         x = np.log(pc / (1 - pc))
         cal = np.array([expit(self.alpha[c] * x[c] + self.beta[c]) for c in range(3)])
@@ -217,8 +239,12 @@ class Calibrator:
 
     # ---------------- 持久化 ----------------
     def save(self, path: str) -> None:
-        payload = {"method": self.method, "n": self.fitted_n,
-                   "alpha": self.alpha, "beta": self.beta}
+        payload = {
+            "method": self.method,
+            "n": self.fitted_n,
+            "alpha": self.alpha,
+            "beta": self.beta,
+        }
         if self.method == "isotonic":
             # 审查:isotonic 必须保存完整 sklearn 对象(pickle bytes)——
             # 仅存阈值再手工重建会缺 X_min_/X_max_/f_ 等内部属性,
@@ -237,10 +263,11 @@ class Calibrator:
         cal.method = d.get("method", "beta")
         if cal.method == "isotonic":
             from sklearn.isotonic import IsotonicRegression
+
             regs = []
             for item in d.get("regs", []):
                 if isinstance(item, (bytes, bytearray)):
-                    regs.append(pickle.loads(item))       # 新格式:完整对象
+                    regs.append(pickle.loads(item))  # 新格式:完整对象
                 else:
                     # 旧格式(仅阈值):尽力重建(缺 f_ 时退化为线性插值)
                     xt, yt = item
@@ -251,8 +278,10 @@ class Calibrator:
                     r.X_max_ = max(xt)
                     try:
                         from scipy.interpolate import interp1d
-                        r.f_ = interp1d(xt, yt, bounds_error=False,
-                                        fill_value=(yt[0], yt[-1]))
+
+                        r.f_ = interp1d(
+                            xt, yt, bounds_error=False, fill_value=(yt[0], yt[-1])
+                        )
                     except Exception:
                         r.f_ = np.interp
                     regs.append(r)

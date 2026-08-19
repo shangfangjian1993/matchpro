@@ -2,6 +2,7 @@
 
 GBM 直接建模胜平负(与泊松类低相关);只参与 1X2,不参与比分矩阵。
 """
+
 from __future__ import annotations
 
 import os
@@ -14,7 +15,9 @@ _GBM_CACHE = ArtifactCache(8)
 
 def load_gbm(league_type, models_dir: str):
     """加载 GBM 分类成员(统一 ArtifactCache);不存在返回 None。"""
-    path = os.path.join(models_dir, league_type.value, "gbm.pkl")  # 审查 P0-4:models_dir=模型根
+    path = os.path.join(
+        models_dir, league_type.value, "gbm.pkl"
+    )  # 审查 P0-4:models_dir=模型根
     if not os.path.exists(path):
         return None
     try:
@@ -22,6 +25,7 @@ def load_gbm(league_type, models_dir: str):
         if cached is not None:
             return cached
         from app.models.ensemble.gbm import GbmClassifier
+
         gbm = GbmClassifier.load(path)
         _GBM_CACHE.put(path, gbm)
         return gbm

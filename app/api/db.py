@@ -35,11 +35,15 @@ from app.core.timeutil import utcnow
 
 # 注意:SQLAlchemy 2.0 的 relationship/backref 是描述符对象,实例访问会绑定为方法
 # 且第一位置参数变成 secondary —— 必须用 partial 包装,保证 db.relationship("X") 语义
-relationship = partial(__import__("sqlalchemy.orm", fromlist=["relationship"]).relationship)
+relationship = partial(
+    __import__("sqlalchemy.orm", fromlist=["relationship"]).relationship
+)
 backref = partial(__import__("sqlalchemy.orm", fromlist=["backref"]).backref)
+
 
 class _QueryMixin:
     """Model.query(由 scoped_session 提供,线程安全)。"""
+
     query = None  # init_db 后由 query_property 绑定
 
 
@@ -56,20 +60,24 @@ def default_database_url() -> str:
     (生产配置 postgresql://user:pass@host:5432/football) > 默认 sqlite。
     """
     import os
+
     env = os.environ.get("DATABASE_URL")
     if env:
         return env
     try:
         from app.core.config import load_yaml
+
         _cfg = load_yaml("system.yaml").get("database") or {}
         if _cfg.get("default_url"):
             return _cfg["default_url"]
     except Exception:
         pass
     # 审查 §28:数据文件在根 data/football.db(引擎代码在 app/data/)
-    return "sqlite:///" + os.path.join(os.path.dirname(os.path.dirname(
-        os.path.dirname(os.path.abspath(__file__)))),
-        "data", "football.db")
+    return "sqlite:///" + os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+        "data",
+        "football.db",
+    )
 
 
 def init_db(database_url: str | None = None):
@@ -149,9 +157,6 @@ def session_scope():
     return _cm()
 
 
-
-
-
 from app.data.canonical.team_names_zh import to_zh
 
 
@@ -189,7 +194,11 @@ class League(db.Model):
     created_at = db.Column(db.DateTime, default=utcnow)
     updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
 
-    __table_args__ = (db.UniqueConstraint("name", "country", "season", name="uq_league_name_country_season"),)
+    __table_args__ = (
+        db.UniqueConstraint(
+            "name", "country", "season", name="uq_league_name_country_season"
+        ),
+    )
 
     def to_dict(self):
         return {
@@ -199,7 +208,9 @@ class League(db.Model):
             "season": self.season,
             "league_type": self.league_type,
         }
+
     matches = db.relationship("Match", back_populates="league", lazy="dynamic")
+
 
 class Match(db.Model):
     __tablename__ = "matches"
@@ -257,20 +268,37 @@ class Match(db.Model):
 
     # 指标字段(摄入层写入,列表/详情返回,便于核对)
     METRIC_ATTRS = (
-        "home_xg", "away_xg", "home_shots", "away_shots",
-        "home_shots_on_target", "away_shots_on_target",
-        "home_corners", "away_corners", "home_possession",
-        "home_yellow_cards", "away_yellow_cards",
-        "home_red_cards", "away_red_cards",
-        "home_ht_goals", "away_ht_goals",
-        "home_passing_accuracy", "away_passing_accuracy",
-        "home_xg_chain", "away_xg_chain",
-        "home_efficiency", "away_efficiency",
-        "home_transition_speed", "away_transition_speed",
-        "home_defensive_actions", "away_defensive_actions",
-        "home_counter_attacks", "away_counter_attacks",
-        "home_tactical_rating", "away_tactical_rating",
-        "home_experience", "away_experience",
+        "home_xg",
+        "away_xg",
+        "home_shots",
+        "away_shots",
+        "home_shots_on_target",
+        "away_shots_on_target",
+        "home_corners",
+        "away_corners",
+        "home_possession",
+        "home_yellow_cards",
+        "away_yellow_cards",
+        "home_red_cards",
+        "away_red_cards",
+        "home_ht_goals",
+        "away_ht_goals",
+        "home_passing_accuracy",
+        "away_passing_accuracy",
+        "home_xg_chain",
+        "away_xg_chain",
+        "home_efficiency",
+        "away_efficiency",
+        "home_transition_speed",
+        "away_transition_speed",
+        "home_defensive_actions",
+        "away_defensive_actions",
+        "home_counter_attacks",
+        "away_counter_attacks",
+        "home_tactical_rating",
+        "away_tactical_rating",
+        "home_experience",
+        "away_experience",
         "match_stage",
     )
 
@@ -300,7 +328,9 @@ class Prediction(db.Model):
     __tablename__ = "predictions"
 
     id = db.Column(db.Integer, primary_key=True)
-    public_id = db.Column(db.String(36), unique=True, nullable=False, default=lambda: str(uuid.uuid4()))
+    public_id = db.Column(
+        db.String(36), unique=True, nullable=False, default=lambda: str(uuid.uuid4())
+    )
     match_id = db.Column(db.Integer, db.ForeignKey("matches.id"), nullable=True)
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     league_type = db.Column(db.String(50), nullable=False, default="PREMIER_LEAGUE")
@@ -321,7 +351,11 @@ class Prediction(db.Model):
         actual_home = actual_away = None
         is_correct = None
         if self.match_id:
-            m = match_map.get(self.match_id) if match_map is not None else db.session.get(Match, self.match_id)
+            m = (
+                match_map.get(self.match_id)
+                if match_map is not None
+                else db.session.get(Match, self.match_id)
+            )
             if m and m.match_status == "finished":
                 actual_home, actual_away = m.home_goals, m.away_goals
                 is_correct = (
@@ -354,7 +388,9 @@ class ModelRecord(db.Model):
     __tablename__ = "models"
 
     id = db.Column(db.Integer, primary_key=True)
-    public_id = db.Column(db.String(36), unique=True, nullable=False, default=lambda: str(uuid.uuid4()))
+    public_id = db.Column(
+        db.String(36), unique=True, nullable=False, default=lambda: str(uuid.uuid4())
+    )
     name = db.Column(db.String(100), nullable=False)
     league_type = db.Column(db.String(50), nullable=False)
     model_type = db.Column(db.String(50), nullable=False)
@@ -386,7 +422,9 @@ class ModelRecord(db.Model):
             "exact_accuracy": self.exact_accuracy,
             "feature_count": self.feature_count,
             "model_path": self.model_path,
-            "training_date": self.training_date.isoformat() if self.training_date else None,
+            "training_date": self.training_date.isoformat()
+            if self.training_date
+            else None,
         }
 
 
@@ -402,7 +440,9 @@ class Notification(db.Model):
     __tablename__ = "notifications"
 
     id = db.Column(db.Integer, primary_key=True)
-    public_id = db.Column(db.String(36), unique=True, nullable=False, default=lambda: str(uuid.uuid4()))
+    public_id = db.Column(
+        db.String(36), unique=True, nullable=False, default=lambda: str(uuid.uuid4())
+    )
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     title = db.Column(db.String(200), nullable=False)
     content = db.Column(db.Text, default="")
@@ -426,7 +466,9 @@ class TrainingTask(db.Model):
     __tablename__ = "training_tasks"
 
     id = db.Column(db.Integer, primary_key=True)
-    public_id = db.Column(db.String(36), unique=True, nullable=False, default=lambda: str(uuid.uuid4()))
+    public_id = db.Column(
+        db.String(36), unique=True, nullable=False, default=lambda: str(uuid.uuid4())
+    )
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     league_type = db.Column(db.String(50), nullable=False)
     status = db.Column(db.String(20), default="pending")
@@ -456,6 +498,7 @@ class TrainingTask(db.Model):
 
 class TeamName(db.Model):
     """队名中英文映射(en_name 主键,zh_name 显示名)"""
+
     __tablename__ = "team_names"
 
     en_name = db.Column(db.String(120), primary_key=True)
@@ -465,12 +508,12 @@ class TeamName(db.Model):
     updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
 
     def to_dict(self):
-        return {"en_name": self.en_name, "zh_name": self.zh_name,
-                "source": self.source}
+        return {"en_name": self.en_name, "zh_name": self.zh_name, "source": self.source}
 
 
 class Team(db.Model):
     """球队实体表:俱乐部/国家队统一;ELO 评分落点 elo_rating。"""
+
     __tablename__ = "teams"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -489,13 +532,19 @@ class Team(db.Model):
     updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
 
     def to_dict(self):
-        return {"id": self.id, "name": self.name, "name_zh": self.name_zh,
-                "team_type": self.team_type, "country": self.country,
-                "elo_rating": self.elo_rating}
+        return {
+            "id": self.id,
+            "name": self.name,
+            "name_zh": self.name_zh,
+            "team_type": self.team_type,
+            "country": self.country,
+            "elo_rating": self.elo_rating,
+        }
 
 
 class TeamSeason(db.Model):
     """球队 × 赛季:联赛归属/升降级。"""
+
     __tablename__ = "team_seasons"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -506,17 +555,23 @@ class TeamSeason(db.Model):
     promoted = db.Column(db.Boolean, nullable=True)
     relegated = db.Column(db.Boolean, nullable=True)
     created_at = db.Column(db.DateTime, default=utcnow)
-    __table_args__ = (db.UniqueConstraint("team_id", "league_id", "season",
-                                          name="uq_team_season"),)
+    __table_args__ = (
+        db.UniqueConstraint("team_id", "league_id", "season", name="uq_team_season"),
+    )
 
 
 class PredictionSnapshot(db.Model):
     """预测快照:任何预测可 100% 重放(数据/特征/模型三哈希 + 全部输入)。"""
+
     __tablename__ = "prediction_snapshots"
 
     id = db.Column(db.Integer, primary_key=True)
-    public_id = db.Column(db.String(36), unique=True, nullable=False,
-                          default=lambda: str(__import__("uuid").uuid4()))
+    public_id = db.Column(
+        db.String(36),
+        unique=True,
+        nullable=False,
+        default=lambda: str(__import__("uuid").uuid4()),
+    )
     created_at = db.Column(db.DateTime, default=utcnow)
     league_id = db.Column(db.Integer, db.ForeignKey("leagues.id"), nullable=False)
     home_team_id = db.Column(db.Integer, db.ForeignKey("teams.id"), nullable=True)
@@ -535,31 +590,46 @@ class PredictionSnapshot(db.Model):
     actual_away_goals = db.Column(db.Integer, nullable=True)
     is_correct = db.Column(db.Boolean, nullable=True)
     log_loss = db.Column(db.Float, nullable=True)
-    __table_args__ = (db.UniqueConstraint("league_id", "home_team", "away_team", "kickoff",
-                                          name="uq_snapshot_match"),)
+    __table_args__ = (
+        db.UniqueConstraint(
+            "league_id", "home_team", "away_team", "kickoff", name="uq_snapshot_match"
+        ),
+    )
 
     def to_dict(self):
         import json
-        return {"id": self.id, "public_id": self.public_id,
-                "created_at": self.created_at.isoformat() if self.created_at else None,
-                "league_id": self.league_id,
-                "home_team": self.home_team, "away_team": self.away_team,
-                "kickoff": self.kickoff.isoformat() if self.kickoff else None,
-                "model_version": self.model_version, "feature_version": self.feature_version,
-                "probabilities": json.loads(self.probabilities_json or "{}"),
-                "actual_home_goals": self.actual_home_goals,
-                "actual_away_goals": self.actual_away_goals,
-                "is_correct": self.is_correct, "log_loss": self.log_loss,
-                "sha256": self.sha256}
+
+        return {
+            "id": self.id,
+            "public_id": self.public_id,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "league_id": self.league_id,
+            "home_team": self.home_team,
+            "away_team": self.away_team,
+            "kickoff": self.kickoff.isoformat() if self.kickoff else None,
+            "model_version": self.model_version,
+            "feature_version": self.feature_version,
+            "probabilities": json.loads(self.probabilities_json or "{}"),
+            "actual_home_goals": self.actual_home_goals,
+            "actual_away_goals": self.actual_away_goals,
+            "is_correct": self.is_correct,
+            "log_loss": self.log_loss,
+            "sha256": self.sha256,
+        }
 
 
 class Experiment(db.Model):
     """训练实验追踪:每次训练的全链路元数据(版本归因)。"""
+
     __tablename__ = "experiments"
 
     id = db.Column(db.Integer, primary_key=True)
-    public_id = db.Column(db.String(36), unique=True, nullable=False,
-                          default=lambda: str(__import__("uuid").uuid4()))
+    public_id = db.Column(
+        db.String(36),
+        unique=True,
+        nullable=False,
+        default=lambda: str(__import__("uuid").uuid4()),
+    )
     created_at = db.Column(db.DateTime, default=utcnow)
     league_type = db.Column(db.String(50), nullable=False)
     dataset_version = db.Column(db.String(40), nullable=False)
@@ -575,18 +645,24 @@ class Experiment(db.Model):
 
     def to_dict(self):
         import json
-        return {"id": self.id, "public_id": self.public_id,
-                "created_at": self.created_at.isoformat() if self.created_at else None,
-                "league_type": self.league_type,
-                "dataset_version": self.dataset_version,
-                "feature_version": self.feature_version,
-                "model_version": self.model_version,
-                "metrics": json.loads(self.metrics_json or "{}"),
-                "data_hash": self.data_hash, "notes": self.notes}
+
+        return {
+            "id": self.id,
+            "public_id": self.public_id,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "league_type": self.league_type,
+            "dataset_version": self.dataset_version,
+            "feature_version": self.feature_version,
+            "model_version": self.model_version,
+            "metrics": json.loads(self.metrics_json or "{}"),
+            "data_hash": self.data_hash,
+            "notes": self.notes,
+        }
 
 
 class FeatureStore(db.Model):
     """特征注册表:特征列 → 6 大族 + 版本(支持特征维度归因/回滚)。"""
+
     __tablename__ = "feature_store"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -597,16 +673,24 @@ class FeatureStore(db.Model):
     version = db.Column(db.String(16), nullable=False)
     formula_hash = db.Column(db.String(64), nullable=False)
     status = db.Column(db.String(10), nullable=False, default="active")
-    __table_args__ = (db.UniqueConstraint("league_type", "feature_name", "version",
-                                          name="uq_feature_version"),)
+    __table_args__ = (
+        db.UniqueConstraint(
+            "league_type", "feature_name", "version", name="uq_feature_version"
+        ),
+    )
 
     def to_dict(self):
-        return {"feature_name": self.feature_name, "family": self.family,
-                "version": self.version, "status": self.status}
+        return {
+            "feature_name": self.feature_name,
+            "family": self.family,
+            "version": self.version,
+            "status": self.status,
+        }
 
 
 class TeamMatchStats(db.Model):
     """每队每场指标(V2:matches 胖表拆分,新增指标无需改主表)。"""
+
     __tablename__ = "team_match_stats"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -640,7 +724,9 @@ class TeamMatchStats(db.Model):
     total_saves = db.Column(db.Integer, nullable=True)
     shots_inside_box = db.Column(db.Integer, nullable=True)
     shots_outside_box = db.Column(db.Integer, nullable=True)
-    __table_args__ = (db.UniqueConstraint("match_id", "side", name="uq_team_match_side"),)
+    __table_args__ = (
+        db.UniqueConstraint("match_id", "side", name="uq_team_match_side"),
+    )
 
 
 class MatchOdds(db.Model):

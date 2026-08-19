@@ -16,7 +16,7 @@ import os
 import sys
 import time
 
-import app.data.sources as sources
+from app.data import sources
 from app.data.canonical import cleanse, ingest
 from app.data.canonical.config import (
     LEAGUE_MAP_FDCO,
@@ -38,6 +38,7 @@ def _league_known_teams(league_type: str) -> set:
     from app.api.db import League, Match
     from app.core.config import LeagueType as _LT
     from app.data.canonical.store import _app_ctx
+
     # 入库用枚举小写值(premier_league);外部参数可能是大写枚举名,统一转换
     try:
         league_type_val = _LT[league_type].value
@@ -45,16 +46,29 @@ def _league_known_teams(league_type: str) -> set:
         league_type_val = league_type.lower()
     _, db = _app_ctx()
     from app.api.db import session_scope
+
     with session_scope():
         league = db.session.query(League).filter_by(league_type=league_type_val).first()
         if league is None:
             return set()
-        known = {r[0] for r in db.session.query(Match.home_team)
-                 .filter(Match.league_id == league.id, Match.match_status == "finished").distinct()}
-        known |= {r[0] for r in db.session.query(Match.away_team)
-                  .filter(Match.league_id == league.id, Match.match_status == "finished").distinct()}
-        known |= {r[0] for r in db.session.query(Match.home_team)
-                  .filter(Match.league_id == league.id, Match.match_status == "scheduled").distinct()}
+        known = {
+            r[0]
+            for r in db.session.query(Match.home_team)
+            .filter(Match.league_id == league.id, Match.match_status == "finished")
+            .distinct()
+        }
+        known |= {
+            r[0]
+            for r in db.session.query(Match.away_team)
+            .filter(Match.league_id == league.id, Match.match_status == "finished")
+            .distinct()
+        }
+        known |= {
+            r[0]
+            for r in db.session.query(Match.home_team)
+            .filter(Match.league_id == league.id, Match.match_status == "scheduled")
+            .distinct()
+        }
         return known
 
 
@@ -83,9 +97,13 @@ def run_history(seasons: list[int], league_codes: list[str]) -> dict:
                 m = cleanse.cleanse_fdco_row(row, lt, unmatched)
                 if m is None:
                     continue
-                if known_teams and (m.home_team not in known_teams or m.away_team not in known_teams):
-                    total["errors"].append(f"{season_code}/{league}: 队名不在 {lt} 已知集合 "
-                                           f"({m.home_team} vs {m.away_team})")
+                if known_teams and (
+                    m.home_team not in known_teams or m.away_team not in known_teams
+                ):
+                    total["errors"].append(
+                        f"{season_code}/{league}: 队名不在 {lt} 已知集合 "
+                        f"({m.home_team} vs {m.away_team})"
+                    )
                     continue
                 cleaned.append(m)
             all_unmatched.update(unmatched)
@@ -93,12 +111,21 @@ def run_history(seasons: list[int], league_codes: list[str]) -> dict:
             for k in ("inserted", "updated", "skipped"):
                 total[k] += r[k]
             total["errors"] += r["errors"]
-            logger.info("%s/%s(%s): 新增 %d 更新 %d 跳过 %d%s",
-                        season_code, league, lt, r["inserted"], r["updated"], r["skipped"],
-                        f",未匹配 {len(unmatched)}" if unmatched else "")
+            logger.info(
+                "%s/%s(%s): 新增 %d 更新 %d 跳过 %d%s",
+                season_code,
+                league,
+                lt,
+                r["inserted"],
+                r["updated"],
+                r["skipped"],
+                f",未匹配 {len(unmatched)}" if unmatched else "",
+            )
             time.sleep(REQUEST_INTERVAL)
     if all_unmatched:
-        logger.warning("未命中队名映射 %d 个: %s", len(all_unmatched), sorted(all_unmatched)[:20])
+        logger.warning(
+            "未命中队名映射 %d 个: %s", len(all_unmatched), sorted(all_unmatched)[:20]
+        )
     return total
 
 
@@ -106,7 +133,9 @@ def run_fixtures(season: int, fdo_leagues: list[str]) -> dict:
     """fdo 赛程/赛果(含未来赛程):下载 → 清洗 → upsert"""
     api_key = os.environ.get("FOOTBALL_DATA_ORG_KEY", "").strip()
     if not api_key:
-        print("缺少 FOOTBALL_DATA_ORG_KEY。免费注册: https://www.football-data.org/register")
+        print(
+            "缺少 FOOTBALL_DATA_ORG_KEY。免费注册: https://www.football-data.org/register"
+        )
         sys.exit(2)
     total = {"inserted": 0, "updated": 0, "skipped": 0, "errors": []}
     for code in fdo_leagues:
@@ -120,25 +149,38 @@ def run_fixtures(season: int, fdo_leagues: list[str]) -> dict:
             logger.error("fdo %s/%d 失败: %s", code, season, e)
             total["errors"].append(f"{code}/{season}: {e}")
             continue
-        cleaned = [m for m in (cleanse.cleanse_fdo_row(r, lt) for r in rows) if m is not None]
+        cleaned = [
+            m for m in (cleanse.cleanse_fdo_row(r, lt) for r in rows) if m is not None
+        ]
         r = ingest.upsert_matches(cleaned)
         for k in ("inserted", "updated", "skipped"):
             total[k] += r[k]
-        logger.info("fdo %s/%d: 新增 %d 更新 %d 跳过 %d", code, season, r["inserted"], r["updated"], r["skipped"])
+        logger.info(
+            "fdo %s/%d: 新增 %d 更新 %d 跳过 %d",
+            code,
+            season,
+            r["inserted"],
+            r["updated"],
+            r["skipped"],
+        )
         time.sleep(REQUEST_INTERVAL)
     return total
 
 
 # fdco 联赛代码 → understat 联赛代码(--leagues 参数统一用 fdco 代码驱动两个源)
 FDCO_TO_UNDERSTAT = {
-    "E0": "EPL", "SP1": "La_liga", "D1": "Bundesliga",
-    "I1": "Serie_A", "F1": "Ligue_1",
+    "E0": "EPL",
+    "SP1": "La_liga",
+    "D1": "Bundesliga",
+    "I1": "Serie_A",
+    "F1": "Ligue_1",
 }
 
 
 def run_xg(seasons: list[int], league_codes: list[str]) -> dict:
     """understat xG:下载 → 清洗(只带 xG)→ upsert 补字段"""
     from app.data.canonical.config import UNDERSTAT_LEAGUES
+
     total = {"inserted": 0, "updated": 0, "skipped": 0, "errors": []}
     all_unmatched = set()
     for year in seasons:
@@ -164,12 +206,19 @@ def run_xg(seasons: list[int], league_codes: list[str]) -> dict:
             r = ingest.upsert_matches(cleaned)
             for k in ("inserted", "updated", "skipped"):
                 total[k] += r[k]
-            logger.info("xg %s/%d: 更新 %d 跳过 %d%s",
-                        code, year, r["updated"], r["skipped"],
-                        f",未匹配 {len(unmatched)}" if unmatched else "")
+            logger.info(
+                "xg %s/%d: 更新 %d 跳过 %d%s",
+                code,
+                year,
+                r["updated"],
+                r["skipped"],
+                f",未匹配 {len(unmatched)}" if unmatched else "",
+            )
             time.sleep(REQUEST_INTERVAL)
     if all_unmatched:
-        logger.warning("未命中队名映射 %d 个: %s", len(all_unmatched), sorted(all_unmatched)[:20])
+        logger.warning(
+            "未命中队名映射 %d 个: %s", len(all_unmatched), sorted(all_unmatched)[:20]
+        )
     return total
 
 
@@ -182,18 +231,32 @@ def _parse_seasons(s: str) -> list[int]:
 
 def main():
     from app.services.cli import add_json_arg, add_log_level_arg, make_parser
+
     ap = make_parser("统一数据同步管道:来源 → 清洗 → 分类 → 入库")
     add_json_arg(ap)
     add_log_level_arg(ap)
-    ap.add_argument("--job", required=True, choices=["history", "fixtures", "xg", "all"],
-                    help="history=fdco历史回填; fixtures=fdo赛程(需key); xg=understat回填; all=全部")
-    ap.add_argument("--seasons", default="2016-2025", help="赛季范围(起始年),如 2016-2025 或 2026")
-    ap.add_argument("--leagues", default=",".join(LEAGUE_MAP_FDCO), help="fdco/understat 联赛代码")
-    ap.add_argument("--fdo-leagues", default=",".join(LEAGUE_MAP_FDO), help="fdo 竞赛代码")
-    ap.add_argument("--season", type=int, default=None, help="fdo 单赛季(默认取 --seasons 的最大值)")
+    ap.add_argument(
+        "--job",
+        required=True,
+        choices=["history", "fixtures", "xg", "all"],
+        help="history=fdco历史回填; fixtures=fdo赛程(需key); xg=understat回填; all=全部",
+    )
+    ap.add_argument(
+        "--seasons", default="2016-2025", help="赛季范围(起始年),如 2016-2025 或 2026"
+    )
+    ap.add_argument(
+        "--leagues", default=",".join(LEAGUE_MAP_FDCO), help="fdco/understat 联赛代码"
+    )
+    ap.add_argument(
+        "--fdo-leagues", default=",".join(LEAGUE_MAP_FDO), help="fdo 竞赛代码"
+    )
+    ap.add_argument(
+        "--season", type=int, default=None, help="fdo 单赛季(默认取 --seasons 的最大值)"
+    )
     args = ap.parse_args()
 
     from app.services.cli import setup_logging
+
     setup_logging(getattr(args, "log_level", "INFO"))
 
     seasons = _parse_seasons(args.seasons)
@@ -203,24 +266,37 @@ def main():
     total = {"inserted": 0, "updated": 0, "skipped": 0, "errors": []}
     if args.job in ("history", "all"):
         r = run_history(seasons, leagues)
-        for k in total: total[k] += r[k]
+        for k in total:
+            total[k] += r[k]
     if args.job in ("fixtures", "all"):
         r = run_fixtures(args.season or max(seasons), fdo_leagues)
-        for k in total: total[k] += r[k]
+        for k in total:
+            total[k] += r[k]
     if args.job in ("xg", "all"):
         r = run_xg(seasons, leagues)
-        for k in total: total[k] += r[k]
+        for k in total:
+            total[k] += r[k]
 
     if getattr(args, "json", False):
         import json as _json
-        print(_json.dumps({
-            "job": args.job, "inserted": total["inserted"],
-            "updated": total["updated"], "skipped": total["skipped"],
-            "errors": total["errors"][:5],
-        }, ensure_ascii=False))
+
+        print(
+            _json.dumps(
+                {
+                    "job": args.job,
+                    "inserted": total["inserted"],
+                    "updated": total["updated"],
+                    "skipped": total["skipped"],
+                    "errors": total["errors"][:5],
+                },
+                ensure_ascii=False,
+            )
+        )
     else:
-        print(f"\n==== 管道完成: 新增 {total['inserted']},更新 {total['updated']},"
-              f"跳过 {total['skipped']},错误 {len(total['errors'])} ====")
+        print(
+            f"\n==== 管道完成: 新增 {total['inserted']},更新 {total['updated']},"
+            f"跳过 {total['skipped']},错误 {len(total['errors'])} ===="
+        )
     if total["errors"]:
         if not getattr(args, "json", False):
             print("错误明细:", total["errors"][:5])
@@ -229,4 +305,5 @@ def main():
 
 if __name__ == "__main__":
     from app.services.cli import run
+
     raise SystemExit(run(main))

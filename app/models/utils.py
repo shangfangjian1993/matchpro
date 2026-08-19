@@ -7,6 +7,7 @@
 
 防泄漏约定:reference_date 必须用训练集内最大日期(绝不能用"当前真实时间")。
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -31,11 +32,16 @@ def compute_time_decay_weights(
     dts = pd.to_datetime(pd.Series(dates), utc=True)
     if reference_date is None:
         reference_date = dts.max()
-    if hasattr(reference_date, "tzinfo") and getattr(reference_date, "tzinfo", None) is None:
+    if (
+        hasattr(reference_date, "tzinfo")
+        and getattr(reference_date, "tzinfo", None) is None
+    ):
         reference_date = reference_date.replace(tzinfo=timezone.utc)
 
     delta_days = (pd.Timestamp(reference_date) - dts).dt.total_seconds() / 86400.0
-    delta_days = np.clip(delta_days.to_numpy(), 0.0, None)  # 未来比赛按 0 天(防泄漏时通常已过滤)
+    delta_days = np.clip(
+        delta_days.to_numpy(), 0.0, None
+    )  # 未来比赛按 0 天(防泄漏时通常已过滤)
 
     decay_rate = np.log(2) / max(half_life_days, 1e-6)
     weights = np.exp(-decay_rate * delta_days)
@@ -46,12 +52,16 @@ def compute_time_decay_weights(
     return weights.astype(np.float64)
 
 
-def compute_piecewise_decay_weights(dates, reference_date: datetime | None = None) -> np.ndarray:
+def compute_piecewise_decay_weights(
+    dates, reference_date: datetime | None = None
+) -> np.ndarray:
     """分段衰减:近 1 年全权重,1~3 年线性 1.0→0.3,3 年以上固定 0.3。"""
     dts = pd.to_datetime(pd.Series(dates), utc=True)
     if reference_date is None:
         reference_date = dts.max()
-    delta = (pd.Timestamp(reference_date) - dts).dt.days.clip(lower=0).to_numpy(dtype=float)
+    delta = (
+        (pd.Timestamp(reference_date) - dts).dt.days.clip(lower=0).to_numpy(dtype=float)
+    )
 
     w = np.ones_like(delta, dtype=float)
     mask = (delta > 365) & (delta <= 1095)
@@ -60,10 +70,13 @@ def compute_piecewise_decay_weights(dates, reference_date: datetime | None = Non
     return (w / w.mean()).astype(np.float64)
 
 
-def compute_balanced_time_weights(df: pd.DataFrame, half_life_days: float = 365.0) -> np.ndarray:
+def compute_balanced_time_weights(
+    df: pd.DataFrame, half_life_days: float = 365.0
+) -> np.ndarray:
     """联赛反频率 + 时间衰减(防止某联赛样本过多主导)。"""
-    time_w = compute_time_decay_weights(df["date"], half_life_days=half_life_days,
-                                        normalize=False)
+    time_w = compute_time_decay_weights(
+        df["date"], half_life_days=half_life_days, normalize=False
+    )
     league_counts = df["league"].value_counts()
     league_w = df["league"].map(lambda x: 1.0 / league_counts.get(x, 1)).to_numpy()
     league_w = league_w / league_w.mean()
@@ -74,6 +87,7 @@ def compute_balanced_time_weights(df: pd.DataFrame, half_life_days: float = 365.
 if __name__ == "__main__":
     # 自测
     import pandas as pd
+
     dates = pd.date_range("2020-01-01", "2023-01-01", periods=5)
     w = compute_time_decay_weights(dates, half_life_days=365.0)
     assert w[0] < w[-1], "更老的比赛权重应更低"
@@ -150,6 +164,7 @@ def date_group_folds(df: pd.DataFrame, n_splits: int = 5, date_col: str = "date"
     日期不足时回退 sklearn TimeSeriesSplit。
     """
     from sklearn.model_selection import TimeSeriesSplit
+
     if date_col not in df.columns:
         return list(TimeSeriesSplit(n_splits=n_splits).split(df))
     d = pd.to_datetime(df[date_col], errors="coerce")
@@ -161,7 +176,7 @@ def date_group_folds(df: pd.DataFrame, n_splits: int = 5, date_col: str = "date"
     folds = []
     for k in range(1, len(edges)):
         train_dates = uniq[: edges[k - 1]]
-        test_dates = uniq[edges[k - 1]:edges[k]]
+        test_dates = uniq[edges[k - 1] : edges[k]]
         trn = df.index[d.isin(train_dates)].to_numpy()
         tst = df.index[d.isin(test_dates)].to_numpy()
         if len(trn) and len(tst):

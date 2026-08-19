@@ -16,15 +16,16 @@
 时间安全:只用截止该场(严格早于)的历史。
 新球队:无样本 → 完全收缩到 league prior(global→league),不报错。
 """
+
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
 
-LEAGUE_KAPPA = 15.0    # 球队历史先验收缩强度
-RECENT_KAPPA = 8.0     # 近期状态收缩强度
-HIST_WINDOW = 1000     # 球队历史先验窗口
-RECENT_WINDOW = 200    # 近期窗口
+LEAGUE_KAPPA = 15.0  # 球队历史先验收缩强度
+RECENT_KAPPA = 8.0  # 近期状态收缩强度
+HIST_WINDOW = 1000  # 球队历史先验窗口
+RECENT_WINDOW = 200  # 近期窗口
 DECAY_HALFLIFE = 200.0  # 时间衰减半衰期(场)
 
 
@@ -38,8 +39,13 @@ def _league_avg(hist_df: pd.DataFrame) -> float:
     return max(float(np.mean(np.concatenate([hg, ag]))), 0.1)
 
 
-def _team_stats(hist_df: pd.DataFrame, team: str, side=None,
-                window: int = RECENT_WINDOW, decay: bool = True) -> tuple[float, float, int]:
+def _team_stats(
+    hist_df: pd.DataFrame,
+    team: str,
+    side=None,
+    window: int = RECENT_WINDOW,
+    decay: bool = True,
+) -> tuple[float, float, int]:
     """该队(主/客/全侧)最近 window 场的加权场均进球/失球。
 
     side: "home" | "away" | None(全侧)。decay: 指数时间衰减。
@@ -57,7 +63,7 @@ def _team_stats(hist_df: pd.DataFrame, team: str, side=None,
     rows = hist_df.iloc[idx]
     gf = rows["home_goals"].to_numpy(dtype=float)
     ga = rows["away_goals"].to_numpy(dtype=float)
-    is_home = (rows["home_team"].to_numpy() == team)
+    is_home = rows["home_team"].to_numpy() == team
     scored = np.where(is_home, gf, ga)
     conceded = np.where(is_home, ga, gf)
     if decay and len(idx) > 1:
@@ -69,14 +75,19 @@ def _team_stats(hist_df: pd.DataFrame, team: str, side=None,
         conceded = np.nansum(conceded * w) if not np.isnan(conceded).all() else np.nan
     else:
         scored = float(np.nanmean(scored)) if not np.isnan(scored).all() else np.nan
-        conceded = float(np.nanmean(conceded)) if not np.isnan(conceded).all() else np.nan
+        conceded = (
+            float(np.nanmean(conceded)) if not np.isnan(conceded).all() else np.nan
+        )
     return scored, conceded, len(idx)
 
 
-def team_posteriors(hist_df: pd.DataFrame, team: str,
-                    side: str | None = None,
-                    kappa_hist: float = LEAGUE_KAPPA,
-                    kappa_recent: float = RECENT_KAPPA) -> tuple[float, float]:
+def team_posteriors(
+    hist_df: pd.DataFrame,
+    team: str,
+    side: str | None = None,
+    kappa_hist: float = LEAGUE_KAPPA,
+    kappa_recent: float = RECENT_KAPPA,
+) -> tuple[float, float]:
     """两阶段经验贝叶斯收缩 → (attack_posterior, defense_posterior)(相对 1)。
 
     阶段1:球队历史先验(全历史 → league);
@@ -103,17 +114,31 @@ def team_posteriors(hist_df: pd.DataFrame, team: str,
     return post_att / league, post_def / league
 
 
-def bayes_lambda(hist_df: pd.DataFrame, home_team: str, away_team: str,
-                 kappa_hist: float = LEAGUE_KAPPA,
-                 kappa_recent: float = RECENT_KAPPA) -> tuple[float, float]:
+def bayes_lambda(
+    hist_df: pd.DataFrame,
+    home_team: str,
+    away_team: str,
+    kappa_hist: float = LEAGUE_KAPPA,
+    kappa_recent: float = RECENT_KAPPA,
+) -> tuple[float, float]:
     """层次贝叶斯 λ:主队用主场进攻侧、客队用客场进攻侧;防守全侧。"""
     if hist_df is None or hist_df.empty:
         return 1.5, 1.4
     league = _league_avg(hist_df)
-    att_h, def_h = team_posteriors(hist_df, home_team, side="home",
-                                   kappa_hist=kappa_hist, kappa_recent=kappa_recent)
-    att_a, def_a = team_posteriors(hist_df, away_team, side="away",
-                                   kappa_hist=kappa_hist, kappa_recent=kappa_recent)
+    att_h, def_h = team_posteriors(
+        hist_df,
+        home_team,
+        side="home",
+        kappa_hist=kappa_hist,
+        kappa_recent=kappa_recent,
+    )
+    att_a, def_a = team_posteriors(
+        hist_df,
+        away_team,
+        side="away",
+        kappa_hist=kappa_hist,
+        kappa_recent=kappa_recent,
+    )
     lam_h = league * att_h * def_a
     lam_a = league * att_a * def_h
     return float(np.clip(lam_h, 0.05, 6.0)), float(np.clip(lam_a, 0.05, 6.0))

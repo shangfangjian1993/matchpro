@@ -10,17 +10,24 @@ from app.models.distributions import pois_pmf as poisson_pmf
 规则: 进攻/防守/动机/轮换 → λ 乘数,封顶 ±20% 防过度
 """
 
-SIGNAL_KEYS = ["home_attack_impact", "home_defense_impact", "home_rotation_risk",
-               "away_attack_impact", "away_defense_impact", "away_rotation_risk",
-               "home_motivation", "away_motivation"]
+SIGNAL_KEYS = [
+    "home_attack_impact",
+    "home_defense_impact",
+    "home_rotation_risk",
+    "away_attack_impact",
+    "away_defense_impact",
+    "away_rotation_risk",
+    "home_motivation",
+    "away_motivation",
+]
 MAX_ADJ = 0.20  # 单信号封顶
 
 
 def normalize_signals(raw: dict) -> dict:
     """校验/夹取信号字段;缺失取 0;confidence 缺失取 0.5"""
     sig = {k: float(raw.get(k, 0.0)) for k in SIGNAL_KEYS}
-    for k in sig:
-        sig[k] = max(-1.0, min(1.0, sig[k]))
+    for k, v in sig.items():
+        sig[k] = max(-1.0, min(1.0, v))
     sig["confidence"] = float(raw.get("confidence", 0.5))
     sig["sources"] = raw.get("sources", [])
     return sig
@@ -46,9 +53,11 @@ def signals_to_adjust(sig: dict) -> tuple[float, float]:
     return h_mult, a_mult
 
 
-
 def score_probs(lam_h: float, lam_a: float, maxg: int = 11) -> list[list[float]]:
-    g = [[poisson_pmf(i, lam_h) * poisson_pmf(j, lam_a) for j in range(maxg + 1)] for i in range(maxg + 1)]
+    g = [
+        [poisson_pmf(i, lam_h) * poisson_pmf(j, lam_a) for j in range(maxg + 1)]
+        for i in range(maxg + 1)
+    ]
     s = sum(sum(r) for r in g)
     return [[v / s for v in r] for r in g]
 
@@ -56,8 +65,11 @@ def score_probs(lam_h: float, lam_a: float, maxg: int = 11) -> list[list[float]]
 def summarize(P, maxg=11):
     hw = sum(P[i][j] for i in range(maxg + 1) for j in range(maxg + 1) if i > j)
     dr = sum(P[i][i] for i in range(maxg + 1))
-    flat = sorted([(P[i][j], i, j) for i in range(maxg + 1) for j in range(maxg + 1)], reverse=True)
-    top3 = ", ".join(f"{i}-{j}({100*p:.1f}%)" for p, i, j in flat[:3])
+    flat = sorted(
+        [(P[i][j], i, j) for i in range(maxg + 1) for j in range(maxg + 1)],
+        reverse=True,
+    )
+    top3 = ", ".join(f"{i}-{j}({100 * p:.1f}%)" for p, i, j in flat[:3])
     return {"hw": hw, "dr": dr, "aw": 1 - hw - dr, "top3": top3}
 
 
@@ -70,15 +82,27 @@ def fuse(numeric: dict, signals: dict | None, league_name: str = "") -> dict:
         sig = normalize_signals(signals)
         h_mult, a_mult = signals_to_adjust(sig)
         lam_h, lam_a = numeric["lam_h"] * h_mult, numeric["lam_a"] * a_mult
-        info = {"adjusted": True, "h_mult": h_mult, "a_mult": a_mult,
-                "confidence": sig["confidence"], "sources": sig["sources"]}
+        info = {
+            "adjusted": True,
+            "h_mult": h_mult,
+            "a_mult": a_mult,
+            "confidence": sig["confidence"],
+            "sources": sig["sources"],
+        }
     P = score_probs(lam_h, lam_a)
     s = summarize(P)
     return {
         "league": league_name,
-        "lam_h": round(lam_h, 3), "lam_a": round(lam_a, 3),
-        "home_win": round(s["hw"], 4), "draw": round(s["dr"], 4), "away_win": round(s["aw"], 4),
-        "top_scores": [{"score": f"{i}-{j}", "prob": round(p, 4)} for p, i, j in
-                       sorted([(P[i][j], i, j) for i in range(11) for j in range(11)], reverse=True)[:3]],
+        "lam_h": round(lam_h, 3),
+        "lam_a": round(lam_a, 3),
+        "home_win": round(s["hw"], 4),
+        "draw": round(s["dr"], 4),
+        "away_win": round(s["aw"], 4),
+        "top_scores": [
+            {"score": f"{i}-{j}", "prob": round(p, 4)}
+            for p, i, j in sorted(
+                [(P[i][j], i, j) for i in range(11) for j in range(11)], reverse=True
+            )[:3]
+        ],
         "info": info,
     }

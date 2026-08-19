@@ -7,6 +7,7 @@
 pipeline_version:人工维护的语义版本(每次预测逻辑变更 +1)。
 pipeline_hash:自动源码哈希(任何相关模块改动即变化)。
 """
+
 from __future__ import annotations
 
 import hashlib

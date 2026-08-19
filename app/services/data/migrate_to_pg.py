@@ -9,6 +9,7 @@
 SQLite 特有类型(JSON/Boolean/DateTime)由 SQLAlchemy 统一适配;
 自增主键由 PG SERIAL/IDENTITY 接管。
 """
+
 from __future__ import annotations
 
 import os
@@ -23,11 +24,19 @@ from sqlalchemy.orm import Session
 
 from app.api.db import Base
 
-
 TABLES = [
-    "users", "leagues", "teams", "matches", "team_match_stats",
-    "predictions", "prediction_snapshots", "experiments",
-    "feature_store", "injuries", "players", "settings",
+    "users",
+    "leagues",
+    "teams",
+    "matches",
+    "team_match_stats",
+    "predictions",
+    "prediction_snapshots",
+    "experiments",
+    "feature_store",
+    "injuries",
+    "players",
+    "settings",
 ]
 
 

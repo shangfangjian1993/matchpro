@@ -1,4 +1,5 @@
 """V2 模型与训练端点(新设计)"""
+
 import glob
 import os
 import subprocess
@@ -15,28 +16,47 @@ from app.data.adapters import _resolve_league_type
 
 router = APIRouter(prefix="/api", tags=["models"])
 
-MODELS_DIR = os.environ.get("MODELS_DIR", str(__import__("app.core.paths", fromlist=["MODELS_DIR"]).MODELS_DIR))
+MODELS_DIR = os.environ.get(
+    "MODELS_DIR", str(__import__("app.core.paths", fromlist=["MODELS_DIR"]).MODELS_DIR)
+)
 
 
 def _worker_script() -> str:
-    root = os.path.dirname(os.path.dirname(os.path.dirname(
-        os.path.dirname(os.path.abspath(__file__)))))
+    root = os.path.dirname(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    )
     return os.path.join(root, "app", "services", "system", "train_worker.py")
 
 
-def submit_training_task(task_id, league_type_value, target_column,
-                         cross_validation, cv_folds) -> None:
+def submit_training_task(
+    task_id, league_type_value, target_column, cross_validation, cv_folds
+) -> None:
     env = dict(os.environ)
-    cmd = [sys.executable, _worker_script(),
-           "--task-id", str(task_id), "--league-type", league_type_value,
-           "--target-column", target_column,
-           "--cv", str(bool(cross_validation)).lower(), "--cv-folds", str(cv_folds)]
+    cmd = [
+        sys.executable,
+        _worker_script(),
+        "--task-id",
+        str(task_id),
+        "--league-type",
+        league_type_value,
+        "--target-column",
+        target_column,
+        "--cv",
+        str(bool(cross_validation)).lower(),
+        "--cv-folds",
+        str(cv_folds),
+    ]
     log_dir = "/tmp/hermes-train-logs"
     os.makedirs(log_dir, exist_ok=True)
     try:
         with open(os.path.join(log_dir, f"train_{task_id}.log"), "ab") as log_f:
-            subprocess.Popen(cmd, env=env, start_new_session=True,
-                             stdout=log_f, stderr=subprocess.STDOUT)
+            subprocess.Popen(
+                cmd,
+                env=env,
+                start_new_session=True,
+                stdout=log_f,
+                stderr=subprocess.STDOUT,
+            )
     except OSError as e:
         task = db.session.get(TrainingTask, task_id)
         if task is not None:
@@ -47,6 +67,7 @@ def submit_training_task(task_id, league_type_value, target_column,
 
 
 # ---------------- 模型 ----------------
+
 
 @router.get("/models")
 def list_models(user=Depends(get_current_user)):
@@ -65,8 +86,12 @@ def retrain_model(model_id: int, admin=Depends(require_admin)):
     record = db.session.get(ModelRecord, model_id)
     if record is None:
         raise HTTPException(404, "模型不存在")
-    task = TrainingTask(user_id=admin.id, league_type=record.league_type,
-                        status="pending", message=f"重新训练模型 #{model_id}")
+    task = TrainingTask(
+        user_id=admin.id,
+        league_type=record.league_type,
+        status="pending",
+        message=f"重新训练模型 #{model_id}",
+    )
     db.session.add(task)
     db.session.commit()
     submit_training_task(task.id, record.league_type, "goals", True, 5)
@@ -81,9 +106,11 @@ def delete_model(model_id: int, admin=Depends(require_admin)):
     # 审查 §6:删除 artifacts/<league>/ 下的全部资产(与当前目录结构一致)
     removed = []
     _art_dir = os.path.join(MODELS_DIR, record.league_type)
-    for pat in (os.path.join(_art_dir, "*.pkl"),
-                os.path.join(_art_dir, "*.pkl.sha256"),
-                os.path.join(_art_dir, "*.pkl.json")):
+    for pat in (
+        os.path.join(_art_dir, "*.pkl"),
+        os.path.join(_art_dir, "*.pkl.sha256"),
+        os.path.join(_art_dir, "*.pkl.json"),
+    ):
         for fp in glob.glob(pat):
             try:
                 os.remove(fp)
@@ -92,9 +119,14 @@ def delete_model(model_id: int, admin=Depends(require_admin)):
                 pass
     # active_models.json 同步移除该联赛指针
     try:
-        _am = os.path.join(str(__import__("app.core.paths", fromlist=["PROJECT_ROOT"]).PROJECT_ROOT), "runtime", "active_models.json")
+        _am = os.path.join(
+            str(__import__("app.core.paths", fromlist=["PROJECT_ROOT"]).PROJECT_ROOT),
+            "runtime",
+            "active_models.json",
+        )
         if os.path.exists(_am):
             import json as _json
+
             with open(_am, encoding="utf-8") as _f:
                 _data = _json.load(_f)
             _data.pop(record.league_type, None)
@@ -109,18 +141,28 @@ def delete_model(model_id: int, admin=Depends(require_admin)):
 
 # ---------------- 训练 ----------------
 
+
 @router.post("/training", status_code=202)
 def train_model(body: TrainingSubmitReq, admin=Depends(require_admin)):
     try:
         league_type = _resolve_league_type(body.league_type)
     except ValueError as e:
         raise HTTPException(400, str(e))
-    task = TrainingTask(user_id=admin.id, league_type=league_type.value,
-                        status="pending", message="任务已创建,等待执行")
+    task = TrainingTask(
+        user_id=admin.id,
+        league_type=league_type.value,
+        status="pending",
+        message="任务已创建,等待执行",
+    )
     db.session.add(task)
     db.session.commit()
-    submit_training_task(task.id, league_type.value, body.target_column,
-                         body.cross_validation, body.cv_folds)
+    submit_training_task(
+        task.id,
+        league_type.value,
+        body.target_column,
+        body.cross_validation,
+        body.cv_folds,
+    )
     return {"message": "训练任务已提交", "task": task.to_dict()}
 
 
@@ -140,6 +182,10 @@ def train_status(task_ref: str, user=Depends(get_current_user)):
 
 @router.get("/training")
 def train_list(user=Depends(get_current_user)):
-    tasks = (TrainingTask.query.filter_by(user_id=user.id)
-             .order_by(TrainingTask.id.desc()).limit(50).all())
+    tasks = (
+        TrainingTask.query.filter_by(user_id=user.id)
+        .order_by(TrainingTask.id.desc())
+        .limit(50)
+        .all()
+    )
     return {"items": [t.to_dict() for t in tasks], "total": len(tasks)}

@@ -7,8 +7,8 @@ expected_minutes 用核心球员缺阵时长(≥60d ×1.5)估计。
 未来升级路径:player → expected_minutes → position value →
 starting XI strength → attack/defense latent state。
 """
-from __future__ import annotations
 
+from __future__ import annotations
 
 # 位置缺失权重(审查 §5.2):前锋 -6% / 中场 -3% / 后卫 -2% / 门将 -3%
 POSITION_WEIGHT = {"前锋": 0.06, "中场": 0.03, "后卫": 0.02, "门将": 0.03}
@@ -39,7 +39,7 @@ def build_strength_vector(sig: dict) -> dict:
             total += loss
         out[side] = {
             "position_loss": pos_loss,
-            "total_loss": round(min(total, 0.20), 4),   # 审查 §5.2:cap ±20%
+            "total_loss": round(min(total, 0.20), 4),  # 审查 §5.2:cap ±20%
             "expected_minutes_adj": round(1.0 - min(total, 0.20), 4),
             "long_core_out": long_core,
         }

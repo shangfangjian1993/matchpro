@@ -1,4 +1,5 @@
 """fdco 源适配器:football-data.co.uk 历史 CSV。"""
+
 import csv
 import io
 

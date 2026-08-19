@@ -19,6 +19,7 @@
     if __name__ == "__main__":
         run(main)
 """
+
 import argparse
 import logging
 import sys
@@ -33,19 +34,24 @@ def make_parser(description: str, **kwargs) -> argparse.ArgumentParser:
 
 def add_json_arg(parser: argparse.ArgumentParser) -> None:
     """--json:关键结果输出为单行 JSON(机器可解析)"""
-    parser.add_argument("--json", action="store_true",
-                        help="机器可读输出(单行 JSON)")
+    parser.add_argument("--json", action="store_true", help="机器可读输出(单行 JSON)")
 
 
 def add_log_level_arg(parser: argparse.ArgumentParser) -> None:
     """--log-level:控制日志详细程度"""
-    parser.add_argument("--log-level", default="INFO",
-                        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-                        help="日志级别")
+    parser.add_argument(
+        "--log-level",
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        help="日志级别",
+    )
 
 
-def add_date_arg(parser: argparse.ArgumentParser, default: str | None = None,
-                 help_text: str = "日期(YYYY-MM-DD)") -> None:
+def add_date_arg(
+    parser: argparse.ArgumentParser,
+    default: str | None = None,
+    help_text: str = "日期(YYYY-MM-DD)",
+) -> None:
     """--date:统一日期参数"""
     parser.add_argument("--date", default=default, help=help_text)
 
@@ -65,6 +71,7 @@ def parse_leagues(value: str) -> list[str]:
 def setup_logging(level: str = "INFO") -> None:
     """统一日志配置(审查 §35:实现移至 app/core/logging.py,此处转发)。"""
     from app.core.logging import setup_logging as _setup
+
     _setup(level)
 
 
@@ -84,6 +91,7 @@ def run(main_fn) -> int:
     except Exception as e:
         # 审查 §35:统一异常 → stderr + exit 1
         from app.core.exceptions import AppError
+
         if isinstance(e, AppError):
             print(f"错误: {e.message}", file=sys.stderr)
         else:

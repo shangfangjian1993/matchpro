@@ -1,4 +1,5 @@
 """Ensemble 包(审查 §36 拆分:probabilities/matrix/fusion/weights;本文件仅导出)。"""
+
 from app.models.distributions import pois_matrix, pois_pmf
 from app.models.distributions import pois_matrix as _pois_matrix
 from app.models.dixon_coles.dc import dc_probs, fit_dc_tau
@@ -19,8 +20,24 @@ from app.models.ensemble.weights import (
 )
 from app.models.negbin.nb import fit_nb_phi, nb_probs
 
-__all__ = ["match_probs", "dc_probs", "fit_dc_tau", "nb_probs", "fit_nb_phi",
-           "elo_goal_lambda", "pois_pmf", "pois_matrix", "_pois_matrix",
-           "_dc_matrix", "_nb_matrix", "fuse_score_matrix", "score_outputs",
-           "fuse_probs", "fuse_goal_outcome", "DEFAULT_WEIGHTS",
-           "set_weights_path", "learn_weights", "load_weights"]
+__all__ = [
+    "DEFAULT_WEIGHTS",
+    "_dc_matrix",
+    "_nb_matrix",
+    "_pois_matrix",
+    "dc_probs",
+    "elo_goal_lambda",
+    "fit_dc_tau",
+    "fit_nb_phi",
+    "fuse_goal_outcome",
+    "fuse_probs",
+    "fuse_score_matrix",
+    "learn_weights",
+    "load_weights",
+    "match_probs",
+    "nb_probs",
+    "pois_matrix",
+    "pois_pmf",
+    "score_outputs",
+    "set_weights_path",
+]

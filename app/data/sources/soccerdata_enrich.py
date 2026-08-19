@@ -9,6 +9,7 @@
 
 依赖:soccerdata(可选 —— 未安装时模块可用性检查返回 False,系统正常降级)。
 """
+
 from __future__ import annotations
 
 import logging
@@ -44,6 +45,7 @@ _TEAM_ALIAS = {
 def available() -> bool:
     try:
         import soccerdata  # noqa: F401
+
         return True
     except ImportError:
         return False
@@ -61,6 +63,7 @@ def _norm(name: str) -> str:
 def _fetch_fbref(league_code: str, season: str):
     """拉取某联赛一赛季的球队比赛日志(合并 shooting + misc)。"""
     import soccerdata as sd
+
     fbref = sd.FBref(leagues=league_code, seasons=season)
     merged = None
     for st in STAT_TYPES:
@@ -72,8 +75,11 @@ def _fetch_fbref(league_code: str, season: str):
         if merged is None:
             merged = df
         else:
-            _drop = [c for c in df.columns
-                     if c in merged.columns and c not in ("team", "opponent", "date")]
+            _drop = [
+                c
+                for c in df.columns
+                if c in merged.columns and c not in ("team", "opponent", "date")
+            ]
             merged = merged.join(df[_drop], how="outer")
     return merged
 
@@ -91,8 +97,9 @@ def _match_team(team_fb: str, known: dict) -> str | None:
     return None
 
 
-def enrich_matches(league_type, rows, season_start: str = "2024",
-                   verbose: bool = True) -> dict:
+def enrich_matches(
+    league_type, rows, season_start: str = "2024", verbose: bool = True
+) -> dict:
     """用 FBref 回填给定聊条完赛场次的统计列。
 
     rows: Match ORM 列表(应已过滤为 '完赛且扩展列缺失' 且同 league)。
@@ -131,10 +138,14 @@ def enrich_matches(league_type, rows, season_start: str = "2024",
                 if cs in ("team", "opponent", "venue", "date", "season", "league"):
                     continue
                 side_rec[cs] = val
-        except Exception:
+        except Exception as _exc:
+            import logging as _lg
+
+            _lg.getLogger(__name__).debug("行处理失败,跳过: %s", _exc)
             continue
 
     from app.api.db import db
+
     updated = unmatched = errors = 0
     for m in rows:
         key = (str(pd.Timestamp(m.match_date).date()), m.home_team, m.away_team)
@@ -147,27 +158,68 @@ def enrich_matches(league_type, rows, season_start: str = "2024",
             # xG/射门/射正/角球/黄红牌(列名以 FBref shooting/misc 为准,get 防御)
             m.home_xg = _g(h.get("xg")) if _g(h.get("xg")) is not None else m.home_xg
             m.away_xg = _g(a.get("xg")) if _g(a.get("xg")) is not None else m.away_xg
-            m.home_shots = _g(h.get("shots")) if _g(h.get("shots")) is not None else m.home_shots
-            m.away_shots = _g(a.get("shots")) if _g(a.get("shots")) is not None else m.away_shots
-            m.home_shots_on_target = _g(h.get("sot")) if _g(h.get("sot")) is not None else m.home_shots_on_target
-            m.away_shots_on_target = _g(a.get("sot")) if _g(a.get("sot")) is not None else m.away_shots_on_target
-            m.home_corners = _g(h.get("ck")) if _g(h.get("ck")) is not None else m.home_corners
-            m.away_corners = _g(a.get("ck")) if _g(a.get("ck")) is not None else m.away_corners
-            m.home_yellow_cards = _g(h.get("crd_y")) if _g(h.get("crd_y")) is not None else m.home_yellow_cards
-            m.away_yellow_cards = _g(a.get("crd_y")) if _g(a.get("crd_y")) is not None else m.away_yellow_cards
-            m.home_red_cards = _g(h.get("crd_r")) if _g(h.get("crd_r")) is not None else m.home_red_cards
-            m.away_red_cards = _g(a.get("crd_r")) if _g(a.get("crd_r")) is not None else m.away_red_cards
+            m.home_shots = (
+                _g(h.get("shots")) if _g(h.get("shots")) is not None else m.home_shots
+            )
+            m.away_shots = (
+                _g(a.get("shots")) if _g(a.get("shots")) is not None else m.away_shots
+            )
+            m.home_shots_on_target = (
+                _g(h.get("sot"))
+                if _g(h.get("sot")) is not None
+                else m.home_shots_on_target
+            )
+            m.away_shots_on_target = (
+                _g(a.get("sot"))
+                if _g(a.get("sot")) is not None
+                else m.away_shots_on_target
+            )
+            m.home_corners = (
+                _g(h.get("ck")) if _g(h.get("ck")) is not None else m.home_corners
+            )
+            m.away_corners = (
+                _g(a.get("ck")) if _g(a.get("ck")) is not None else m.away_corners
+            )
+            m.home_yellow_cards = (
+                _g(h.get("crd_y"))
+                if _g(h.get("crd_y")) is not None
+                else m.home_yellow_cards
+            )
+            m.away_yellow_cards = (
+                _g(a.get("crd_y"))
+                if _g(a.get("crd_y")) is not None
+                else m.away_yellow_cards
+            )
+            m.home_red_cards = (
+                _g(h.get("crd_r"))
+                if _g(h.get("crd_r")) is not None
+                else m.home_red_cards
+            )
+            m.away_red_cards = (
+                _g(a.get("crd_r"))
+                if _g(a.get("crd_r")) is not None
+                else m.away_red_cards
+            )
             updated += 1
         except Exception:
             errors += 1
     db.session.commit()
-    return {"fetched": len(df), "updated": updated, "unmatched": unmatched, "errors": errors}
+    return {
+        "fetched": len(df),
+        "updated": updated,
+        "unmatched": unmatched,
+        "errors": errors,
+    }
 
 
 def _g(v):
     """值清洗:NaN/str 空白 → None;float 化。"""
     try:
-        if v is None or (isinstance(v, float) and v != v) or (isinstance(v, str) and not v.strip()):
+        if (
+            v is None
+            or (isinstance(v, float) and __import__("math").isnan(v))
+            or (isinstance(v, str) and not v.strip())
+        ):
             return None
         return float(v)
     except Exception:

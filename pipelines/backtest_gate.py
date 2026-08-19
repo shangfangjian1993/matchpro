@@ -21,6 +21,7 @@
 用法:
     python walkforward_backtest.py --sample 400 --retrain-every 100
 """
+
 import argparse
 import json
 import os
@@ -36,19 +37,25 @@ sys.path.insert(0, _ROOT)
 import numpy as np
 import pandas as pd
 
-from app.api.db import Match, League, init_db
+from app.api.db import League, Match, init_db
 from app.core.config import LeagueType
 from app.data.adapters import matches_to_dataframe
 from app.models.distributions import pois_matrix
 from app.replay.metrics import brier_score, ece, log_loss, rps
 
-LEAGUE_TYPES = [LeagueType.PREMIER_LEAGUE, LeagueType.LA_LIGA, LeagueType.BUNDESLIGA,
-                LeagueType.SERIE_A, LeagueType.LIGUE_1]
+LEAGUE_TYPES = [
+    LeagueType.PREMIER_LEAGUE,
+    LeagueType.LA_LIGA,
+    LeagueType.BUNDESLIGA,
+    LeagueType.SERIE_A,
+    LeagueType.LIGUE_1,
+]
 
 
 def _train_on(prefix_matches, lt, league):
     """用前缀比赛训练内存模型(不落盘)。"""
     from app.services.training.model_trainer import ModelTrainer
+
     df = matches_to_dataframe(prefix_matches)
     mt = ModelTrainer()
     mt.train_model(df, lt, cross_validation=False)
@@ -58,8 +65,7 @@ def _train_on(prefix_matches, lt, league):
 def _predict_once(builder, engine, lt, m, md, model):
     """统一预测链路(审查 P0-1):ContextBuilder + PredictionEngine ——
     与生产 predict_match 完全同一代码路径(Goal/GBM/Calibration/Regime)。"""
-    ctx = builder.build(lt, m.home_team, m.away_team, md, model=model,
-                        hist_limit=500)
+    ctx = builder.build(lt, m.home_team, m.away_team, md, model=model, hist_limit=500)
     result = engine.predict(ctx)
     internal = result.get("_internal", {})
     return result, internal
@@ -69,13 +75,17 @@ def backtest_league(lt: LeagueType, sample: int, retrain_every: int) -> dict:
     from app.core.paths import MODELS_DIR as _MD
     from app.prediction.context import ContextBuilder
     from app.prediction.engine import PredictionEngine
+
     builder = ContextBuilder(str(_MD))
     engine = PredictionEngine(str(_MD))
     league = League.query.filter_by(league_type=lt.value).first()
     if league is None:
         return {"league": lt.value, "error": "无联赛"}
-    matches = (Match.query.filter_by(league_id=league.id, match_status="finished")
-               .order_by(Match.match_date.asc()).all())
+    matches = (
+        Match.query.filter_by(league_id=league.id, match_status="finished")
+        .order_by(Match.match_date.asc())
+        .all()
+    )
     if len(matches) < 200:
         return {"league": lt.value, "error": f"数据不足 {len(matches)}"}
     test = matches
@@ -85,12 +95,34 @@ def backtest_league(lt: LeagueType, sample: int, retrain_every: int) -> dict:
     hist_max = 500
 
     model = None
-    st = {"n": 0, "score_hit": 0, "top3_hit": 0, "top5_hit": 0, "result_hit": 0,
-          "hcap_05_n": 0, "hcap_05_hit": 0, "hcap_1_n": 0, "hcap_1_hit": 0,
-          "draw_n": 0, "ou25_n": 0, "ou25_hit": 0, "btts_n": 0, "btts_hit": 0,
-          "ll": 0.0, "brier": 0.0, "rps": 0.0, "ece": 0.0,
-          "base_ll": 0.0, "base_brier": 0.0, "base_rps": 0.0,
-          "pvecs": [], "acts": [], "bvecs": [], "retrains": 0, "secs": 0.0}
+    st = {
+        "n": 0,
+        "score_hit": 0,
+        "top3_hit": 0,
+        "top5_hit": 0,
+        "result_hit": 0,
+        "hcap_05_n": 0,
+        "hcap_05_hit": 0,
+        "hcap_1_n": 0,
+        "hcap_1_hit": 0,
+        "draw_n": 0,
+        "ou25_n": 0,
+        "ou25_hit": 0,
+        "btts_n": 0,
+        "btts_hit": 0,
+        "ll": 0.0,
+        "brier": 0.0,
+        "rps": 0.0,
+        "ece": 0.0,
+        "base_ll": 0.0,
+        "base_brier": 0.0,
+        "base_rps": 0.0,
+        "pvecs": [],
+        "acts": [],
+        "bvecs": [],
+        "retrains": 0,
+        "secs": 0.0,
+    }
     t_start = time.time()
 
     for i, m in enumerate(test):
@@ -106,8 +138,11 @@ def backtest_league(lt: LeagueType, sample: int, retrain_every: int) -> dict:
                 try:
                     model, _ = _train_on(prefix, lt, league)
                     st["retrains"] += 1
-                    print(f"  {lt.value} 重训#{st['retrains']} @场{i} "
-                          f"(前缀 {len(prefix)} 场, {time.time()-t0:.0f}s)", flush=True)
+                    print(
+                        f"  {lt.value} 重训#{st['retrains']} @场{i} "
+                        f"(前缀 {len(prefix)} 场, {time.time() - t0:.0f}s)",
+                        flush=True,
+                    )
                 except Exception as e:
                     print(f"  {lt.value} 重训失败: {e}", flush=True)
                     model = None
@@ -117,7 +152,10 @@ def backtest_league(lt: LeagueType, sample: int, retrain_every: int) -> dict:
             continue
         try:
             result, internal = _predict_once(builder, engine, lt, m, md, model)
-        except Exception:
+        except Exception as _exc:
+            import logging as _lg
+
+            _lg.getLogger(__name__).debug("回测场次失败,跳过: %s", _exc)
             continue
         lam_h, lam_a = internal.get("home_lambda"), internal.get("away_lambda")
         if not lam_h or not lam_a or not (lam_h > 0 and lam_a > 0):
@@ -125,14 +163,18 @@ def backtest_league(lt: LeagueType, sample: int, retrain_every: int) -> dict:
         gh, ga = (m.home_goals or 0), (m.away_goals or 0)
         actual = 0 if gh > ga else (1 if gh == ga else 2)
         # 模型 1X2(统一链路:Goal+GBM+校准+Regime 调整)
-        phw, pdr, paw = result["home_win_probability"], result["draw_probability"], result["away_win_probability"]
+        phw, pdr, paw = (
+            result["home_win_probability"],
+            result["draw_probability"],
+            result["away_win_probability"],
+        )
         pvec = [phw, pdr, paw]
         # baseline:hist 窗口频率(截止该场,时间安全)
         _hist_for_base = matches_to_dataframe(cutoff[-hist_max:])
         hh = _hist_for_base[_hist_for_base["home_goals"].notna()]
         if len(hh) >= 30:
-            b_home = ((hh["home_goals"] > hh["away_goals"]).mean())
-            b_draw = ((hh["home_goals"] == hh["away_goals"]).mean())
+            b_home = (hh["home_goals"] > hh["away_goals"]).mean()
+            b_draw = (hh["home_goals"] == hh["away_goals"]).mean()
             b_away = 1 - b_home - b_draw
         else:
             b_home, b_draw, b_away = 0.45, 0.28, 0.27
@@ -154,9 +196,13 @@ def backtest_league(lt: LeagueType, sample: int, retrain_every: int) -> dict:
             st["score_hit"] += 1
         flat = grid.flatten()
         top = np.argsort(flat)[::-1]
-        if (gh, ga) in set(map(tuple, [np.unravel_index(i, grid.shape) for i in top[:3]])):
+        if (gh, ga) in set(
+            map(tuple, [np.unravel_index(i, grid.shape) for i in top[:3]])
+        ):
             st["top3_hit"] += 1
-        if (gh, ga) in set(map(tuple, [np.unravel_index(i, grid.shape) for i in top[:5]])):
+        if (gh, ga) in set(
+            map(tuple, [np.unravel_index(i, grid.shape) for i in top[:5]])
+        ):
             st["top5_hit"] += 1
         if pred_dir == actual:
             st["result_hit"] += 1
@@ -187,7 +233,9 @@ def backtest_league(lt: LeagueType, sample: int, retrain_every: int) -> dict:
     st["secs"] = round(time.time() - t_start, 1)
     n = max(1, st["n"])
     out = {
-        "league": lt.value, "n": st["n"], "retrains": st["retrains"],
+        "league": lt.value,
+        "n": st["n"],
+        "retrains": st["retrains"],
         "secs": st["secs"],
         "score_hit_rate": round(st["score_hit"] / n, 4),
         "top3_hit_rate": round(st["top3_hit"] / n, 4),
@@ -209,31 +257,51 @@ def backtest_league(lt: LeagueType, sample: int, retrain_every: int) -> dict:
         "d_rps": round((st["rps"] - st["base_rps"]) / n, 5),
         "ece": round(ece(np.array(st["pvecs"]), np.array(st["acts"])), 4),
         # 门禁判定:ll 优于 baseline 且 brier/rps 不显著退化(Δ ≤ +0.005)
-        "gate_pass": bool(st["ll"] < st["base_ll"] and st["brier"] <= st["base_brier"] + 0.005
-                          and st["rps"] <= st["base_rps"] + 0.005),
+        "gate_pass": bool(
+            st["ll"] < st["base_ll"]
+            and st["brier"] <= st["base_brier"] + 0.005
+            and st["rps"] <= st["base_rps"] + 0.005
+        ),
     }
-    print(f"  {lt.value}: n={out['n']} retrains={out['retrains']} "
-          f"acc={out['result_accuracy']:.4f} ll={out['log_loss']:.4f} "
-          f"base_ll={out['base_log_loss']:.4f} gate={'PASS' if out['gate_pass'] else 'FAIL'}", flush=True)
+    print(
+        f"  {lt.value}: n={out['n']} retrains={out['retrains']} "
+        f"acc={out['result_accuracy']:.4f} ll={out['log_loss']:.4f} "
+        f"base_ll={out['base_log_loss']:.4f} gate={'PASS' if out['gate_pass'] else 'FAIL'}",
+        flush=True,
+    )
     return out
 
 
 def main():
     ap = argparse.ArgumentParser(description="滚动重训 Walk-Forward 回测门禁")
-    ap.add_argument("--sample", type=int, default=400, help="每联赛最大测试场数(默认 400≈5 联赛 2000 总)")
-    ap.add_argument("--retrain-every", type=int, default=100, help="每 N 场重训一次(防泄漏滚动)")
+    ap.add_argument(
+        "--sample",
+        type=int,
+        default=400,
+        help="每联赛最大测试场数(默认 400≈5 联赛 2000 总)",
+    )
+    ap.add_argument(
+        "--retrain-every", type=int, default=100, help="每 N 场重训一次(防泄漏滚动)"
+    )
     ap.add_argument("--league", default=None)
     args = ap.parse_args()
 
     import logging
+
     logging.basicConfig(level=logging.WARNING)
     init_db()
-    report = {"script": "walkforward_backtest", "sample": args.sample,
-              "retrain_every": args.retrain_every, "leagues": {}}
+    report = {
+        "script": "walkforward_backtest",
+        "sample": args.sample,
+        "retrain_every": args.retrain_every,
+        "leagues": {},
+    }
     for lt in LEAGUE_TYPES:
         if args.league and lt.value != args.league:
             continue
-        report["leagues"][lt.value] = backtest_league(lt, args.sample, args.retrain_every)
+        report["leagues"][lt.value] = backtest_league(
+            lt, args.sample, args.retrain_every
+        )
 
     out_dir = os.path.join(_ROOT, "artifacts", "experiments", "backtest")
     os.makedirs(out_dir, exist_ok=True)

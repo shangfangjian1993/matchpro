@@ -9,6 +9,7 @@
 用法:
     python scripts/backfill_teams.py
 """
+
 import os
 import sys
 from collections import defaultdict
@@ -33,9 +34,9 @@ def main() -> int:
     with session_scope():
         # 1. 建立 teams(从 matches 队名;幂等)
         names = set()
-        for name, in db.session.query(Match.home_team).distinct():
+        for (name,) in db.session.query(Match.home_team).distinct():
             names.add(name)
-        for name, in db.session.query(Match.away_team).distinct():
+        for (name,) in db.session.query(Match.away_team).distinct():
             names.add(name)
         created = 0
         for name in sorted(names):
@@ -43,7 +44,9 @@ def main() -> int:
                 # Team 主键用 name?设计是 id 主键,按 name 查
                 existing = Team.query.filter_by(name=name).first()
                 if existing is None:
-                    db.session.add(Team(name=name, name_zh=to_zh(name), team_type="club"))
+                    db.session.add(
+                        Team(name=name, name_zh=to_zh(name), team_type="club")
+                    )
                     created += 1
         db.session.commit()
         print(f"✅ teams: 共 {len(names)} 队名,新建 {created}")
@@ -60,23 +63,36 @@ def main() -> int:
 
         # 3. team_seasons 推导(球队×联赛×赛季)
         combos = defaultdict(set)
-        for team_id, league_id, date in db.session.query(
-                Match.home_team_id, Match.league_id, Match.match_date).filter(
-                Match.home_team_id.isnot(None)).all():
+        for team_id, league_id, date in (
+            db.session.query(Match.home_team_id, Match.league_id, Match.match_date)
+            .filter(Match.home_team_id.isnot(None))
+            .all()
+        ):
             if date:
                 combos[(team_id, league_id)].add(_season_label(date))
         for (team_id, league_id), seasons in combos.items():
             for s in seasons:
                 exists = TeamSeason.query.filter_by(
-                    team_id=team_id, league_id=league_id, season=s).first()
+                    team_id=team_id, league_id=league_id, season=s
+                ).first()
                 if exists is None:
-                    db.session.add(TeamSeason(team_id=team_id, league_id=league_id, season=s))
+                    db.session.add(
+                        TeamSeason(team_id=team_id, league_id=league_id, season=s)
+                    )
         db.session.commit()
-        print(f"✅ team_seasons: {len(combos)} 个球队-联赛组合,{sum(len(v) for v in combos.values())} 条赛季记录")
+        print(
+            f"✅ team_seasons: {len(combos)} 个球队-联赛组合,{sum(len(v) for v in combos.values())} 条赛季记录"
+        )
 
         # 4. leagues.comp_type 标注(五大联赛=league,欧冠/世界杯/欧洲杯=cup)
         for lg in League.query.all():
-            if lg.league_type in ("premier_league", "la_liga", "bundesliga", "serie_a", "ligue_1"):
+            if lg.league_type in (
+                "premier_league",
+                "la_liga",
+                "bundesliga",
+                "serie_a",
+                "ligue_1",
+            ):
                 lg.comp_type = "league"
             else:
                 lg.comp_type = "cup"

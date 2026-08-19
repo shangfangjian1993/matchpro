@@ -3,9 +3,10 @@
 HGBR 无内置 feature_importances_(sklearn 限制),用 permutation importance
 在时间 holdout 上评估 78 特征对预测质量的影响,识别低贡献特征(消融候选)。
 """
+
 import sys
 
-_ROOT = str(__import__('app.core.paths', fromlist=['PROJECT_ROOT']).PROJECT_ROOT)
+_ROOT = str(__import__("app.core.paths", fromlist=["PROJECT_ROOT"]).PROJECT_ROOT)
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
@@ -14,6 +15,7 @@ def _scorer(model, X, y):
     """负 poisson 损失(越大越好,permutation_importance 需要最大化)。"""
     pred = model.predict(X)["predictions"]
     import numpy as np
+
     return -np.mean(np.maximum(pred, 1e-10) - y * np.log(np.maximum(pred, 1e-10)))
 
 
@@ -29,18 +31,28 @@ def main():
     init_db()
     with session_scope():
         league = League.query.filter_by(league_type="premier_league").first()
-        model = _load_model(LeagueType.PREMIER_LEAGUE, str(__import__("app.core.paths", fromlist=["MODELS_DIR"]).MODELS_DIR))
-        matches = Match.query.filter_by(league_id=league.id, match_status="finished").all()
-        df = matches_to_dataframe(matches, league_name=league.name,
-                                  league_season=league.season or "")
+        model = _load_model(
+            LeagueType.PREMIER_LEAGUE,
+            str(__import__("app.core.paths", fromlist=["MODELS_DIR"]).MODELS_DIR),
+        )
+        matches = Match.query.filter_by(
+            league_id=league.id, match_status="finished"
+        ).all()
+        df = matches_to_dataframe(
+            matches, league_name=league.name, league_season=league.season or ""
+        )
         # 滚动特征由 prepare_features 生成(与训练同口径)
         prepared = model.prepare_features(df)
         cols = [c for c in model.feature_columns_ if c in prepared.columns]
-        n = len(prepared); split = int(n * 0.8)
+        n = len(prepared)
+        split = int(n * 0.8)
         X_test = prepared[cols].iloc[split:]
         y_test = df["home_goals"].astype(float).iloc[split:]
 
-        print(f"holdout: {len(X_test)} 场 | 特征 {len(cols)} | permutation importance...", flush=True)
+        print(
+            f"holdout: {len(X_test)} 场 | 特征 {len(cols)} | permutation importance...",
+            flush=True,
+        )
         # 手动 permutation importance(模型无 fit 方法,sklearn 校验拒绝)
         rng = np.random.default_rng(42)
         base_score = _scorer(model, X_test, y_test)
@@ -67,11 +79,12 @@ def main():
         total = sum(fam.values())
         print("\n=== 家族重要性占比 ===")
         for f, v in sorted(fam.items(), key=lambda kv: -kv[1]):
-            print(f"  {f}: {100*v/total:.1f}%")
+            print(f"  {f}: {100 * v / total:.1f}%")
         low = [(n, v) for n, v in items if v < 0.0005]
         print(f"\n低贡献特征({len(low)}):", [n for n, _ in low][:12])
 
 
 if __name__ == "__main__":
     from app.services.cli import run
+
     raise SystemExit(run(main))

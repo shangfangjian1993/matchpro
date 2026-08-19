@@ -1,0 +1,12 @@
+# Ruff 配置(审查 21cd12b P1-5:CI 从 --select F 升级为全规则)
+# 决策记录:
+# - BLE001/S110:项目约定"可降级特征/单场失败 → 跳过并记录 degraded/failure",
+#   核心路径已细分异常(FeatureUnavailable/Schema/Computation),泛捕获仅用于
+#   明确的可降级边界;统一忽略并在代码处作语义注释,避免 100+ 处 noqa 噪音。
+# - app/api 的 B008:FastAPI `Depends()` 依赖注入是框架强制惯用法(必须在
+#   默认参数位置),属误报,per-file 忽略。
+[lint]
+ignore = ["BLE001", "S110"]
+
+[lint.per-file-ignores]
+"app/api/*.py" = ["B008"]

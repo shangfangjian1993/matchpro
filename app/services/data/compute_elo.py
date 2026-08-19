@@ -8,6 +8,7 @@
 用法:
     python scripts/compute_elo.py
 """
+
 import os
 import sys
 from datetime import datetime
@@ -17,7 +18,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.services.cli import run, setup_logging
 
 # 联赛归属:俱乐部赛事 / 国家队赛事
-_CLUB_LEAGUES = {"premier_league", "la_liga", "bundesliga", "serie_a", "ligue_1", "champions_league"}
+_CLUB_LEAGUES = {
+    "premier_league",
+    "la_liga",
+    "bundesliga",
+    "serie_a",
+    "ligue_1",
+    "champions_league",
+}
 _NATIONAL_LEAGUES = {"world_cup", "european_championship"}
 
 
@@ -29,10 +37,22 @@ def main() -> int:
     init_db()
     with session_scope():
         # 1. 读取比赛,按时间排序
-        rows = db.session.query(Match.league_id, Match.home_team, Match.away_team,
-                                Match.home_goals, Match.away_goals, Match.match_date).filter(
-            Match.match_status == "finished",
-            Match.home_goals.isnot(None), Match.away_goals.isnot(None)).all()
+        rows = (
+            db.session.query(
+                Match.league_id,
+                Match.home_team,
+                Match.away_team,
+                Match.home_goals,
+                Match.away_goals,
+                Match.match_date,
+            )
+            .filter(
+                Match.match_status == "finished",
+                Match.home_goals.isnot(None),
+                Match.away_goals.isnot(None),
+            )
+            .all()
+        )
         league_type = {lg.id: lg.league_type for lg in League.query.all()}
 
         club_games, national_games = [], []
@@ -45,7 +65,9 @@ def main() -> int:
                 national_games.append(game)
         club_games.sort(key=lambda g: g[0])
         national_games.sort(key=lambda g: g[0])
-        print(f"俱乐部比赛: {len(club_games)} 场 | 国家队比赛: {len(national_games)} 场")
+        print(
+            f"俱乐部比赛: {len(club_games)} 场 | 国家队比赛: {len(national_games)} 场"
+        )
 
         # 2. 演化(三维度:overall/attack/defense 独立实例)
         # attack/defense 维度用低 K(连续回归式,防膨胀)
@@ -64,7 +86,7 @@ def main() -> int:
             nat_def.update(h, a, hg, ag, home_adv=0.0, is_national=True, mode="defense")
 
         # 3. 写回 teams
-        now = datetime.now()
+        now = datetime.now(tz=datetime.timezone.utc)
         updated = 0
         for t in Team.query.all():
             if t.team_type == "national":
@@ -84,8 +106,13 @@ def main() -> int:
         print(f"✅ 已写回 {updated} 支球队 ELO")
 
         # 4. 验证:Top 10
-        top = db.session.query(Team).filter(Team.elo_rating.isnot(None)).order_by(
-            Team.elo_rating.desc()).limit(10).all()
+        top = (
+            db.session.query(Team)
+            .filter(Team.elo_rating.isnot(None))
+            .order_by(Team.elo_rating.desc())
+            .limit(10)
+            .all()
+        )
         print("\n=== Top 10 球队 ELO ===")
         for t in top:
             print(f"  {t.name_zh or t.name:<10} {t.elo_rating:.0f} ({t.team_type})")

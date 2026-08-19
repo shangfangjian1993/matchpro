@@ -22,16 +22,17 @@ VALID_STATUS = {"finished", "scheduled", "postponed", "cancelled"}
 @dataclass
 class NormalizedMatch:
     """清洗后的统一比赛记录(入库中间格式)"""
-    league_type: str                      # 小写枚举值,如 premier_league
+
+    league_type: str  # 小写枚举值,如 premier_league
     date: datetime
-    home_team: str                        # 规范名(清洗后)
+    home_team: str  # 规范名(清洗后)
     away_team: str
     match_status: str = "finished"
-    home_team_id: int | None = None       # 球队实体 id(ingest 阶段回填)
+    home_team_id: int | None = None  # 球队实体 id(ingest 阶段回填)
     away_team_id: int | None = None
     home_goals: int | None = None
     away_goals: int | None = None
-    season_label: str = ""                # 分类用:"2016-2017"(推导或源提供)
+    season_label: str = ""  # 分类用:"2016-2017"(推导或源提供)
     # 指标字段(可选)
     home_xg: float | None = None
     away_xg: float | None = None
@@ -70,14 +71,20 @@ def _parse_date(value) -> datetime | None:
         return None
     if isinstance(value, (int, float)):
         from app.core.timeutil import utcnow
+
         return utcnow().fromtimestamp(value)
     s = str(value).strip()
     if s.endswith("Z"):
         s = s[:-1] + "+00:00"
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d",
-                "%d/%m/%Y", "%d/%m/%y"):
+    for fmt in (
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+        "%Y-%m-%d",
+        "%d/%m/%Y",
+        "%d/%m/%y",
+    ):
         try:
-            return datetime.strptime(s[:19], fmt)
+            return datetime.strptime(s[:19], fmt).replace(tzinfo=datetime.timezone.utc)
         except ValueError:
             continue
     try:
@@ -116,8 +123,9 @@ def _set_metric(m: NormalizedMatch, field_name: str, value):
         setattr(m, field_name, _to_int(value))
 
 
-def _cleanse_common(league_type: str, date, home, away, status,
-                    unmatched: list | None = None) -> NormalizedMatch | None:
+def _cleanse_common(
+    league_type: str, date, home, away, status, unmatched: list | None = None
+) -> NormalizedMatch | None:
     """公共校验:队名归一化 + 日期 + 状态;不合法返回 None"""
     if date is None:
         return None
@@ -131,8 +139,11 @@ def _cleanse_common(league_type: str, date, home, away, status,
             unmatched.append(f"status:{status}")
         return None
     m = NormalizedMatch(
-        league_type=league_type, date=date,
-        home_team=home, away_team=away, match_status=status,
+        league_type=league_type,
+        date=date,
+        home_team=home,
+        away_team=away,
+        match_status=status,
     )
     m.season_label = derive_season_label(date)
     return m
@@ -140,11 +151,19 @@ def _cleanse_common(league_type: str, date, home, away, status,
 
 # ---------------------------------------------------------------- 各源清洗器
 
-def cleanse_fdco_row(row: dict, league_type: str,
-                     unmatched: list | None = None) -> NormalizedMatch | None:
+
+def cleanse_fdco_row(
+    row: dict, league_type: str, unmatched: list | None = None
+) -> NormalizedMatch | None:
     """football-data.co.uk CSV 行 → NormalizedMatch"""
-    m = _cleanse_common(league_type, _parse_date(row.get("Date")),
-                        row.get("HomeTeam"), row.get("AwayTeam"), "finished", unmatched)
+    m = _cleanse_common(
+        league_type,
+        _parse_date(row.get("Date")),
+        row.get("HomeTeam"),
+        row.get("AwayTeam"),
+        "finished",
+        unmatched,
+    )
     if m is None:
         return None
     m.home_goals = _to_int(row.get("FTHG"))
@@ -156,20 +175,28 @@ def cleanse_fdco_row(row: dict, league_type: str,
     return m
 
 
-def cleanse_fdo_row(row: dict, league_type: str,
-                    unmatched: list | None = None) -> NormalizedMatch | None:
+def cleanse_fdo_row(
+    row: dict, league_type: str, unmatched: list | None = None
+) -> NormalizedMatch | None:
     """football-data.org API match 对象 → NormalizedMatch"""
     status_map = {
         "FINISHED": "finished",
-        "AWARDED": "finished",          # 判负场:视为完赛,提取 fullTime 比分
-        "SCHEDULED": "scheduled", "TIMED": "scheduled",
-        "POSTPONED": "postponed", "CANCELLED": "cancelled",
+        "AWARDED": "finished",  # 判负场:视为完赛,提取 fullTime 比分
+        "SCHEDULED": "scheduled",
+        "TIMED": "scheduled",
+        "POSTPONED": "postponed",
+        "CANCELLED": "cancelled",
         # IN_PLAY/PAUSED/SUSPENDED 等瞬时状态:归 scheduled,下次抓取刷新
     }
     status = status_map.get(row.get("status", ""), "scheduled")
-    m = _cleanse_common(league_type, _parse_date(row.get("utcDate")),
-                        (row.get("homeTeam") or {}).get("name"),
-                        (row.get("awayTeam") or {}).get("name"), status, unmatched)
+    m = _cleanse_common(
+        league_type,
+        _parse_date(row.get("utcDate")),
+        (row.get("homeTeam") or {}).get("name"),
+        (row.get("awayTeam") or {}).get("name"),
+        status,
+        unmatched,
+    )
     if m is None:
         return None
     if status == "finished":
@@ -179,14 +206,20 @@ def cleanse_fdo_row(row: dict, league_type: str,
     return m
 
 
-def cleanse_understat_row(row: dict, league_type: str,
-                          unmatched: list | None = None) -> NormalizedMatch | None:
+def cleanse_understat_row(
+    row: dict, league_type: str, unmatched: list | None = None
+) -> NormalizedMatch | None:
     """understat dates 数组元素 → NormalizedMatch(仅回填 xG,其余字段 None)"""
     if not row.get("isResult"):
         return None
-    m = _cleanse_common(league_type, _parse_date(row.get("datetime")),
-                        (row.get("h") or {}).get("title"),
-                        (row.get("a") or {}).get("title"), "finished", unmatched)
+    m = _cleanse_common(
+        league_type,
+        _parse_date(row.get("datetime")),
+        (row.get("h") or {}).get("title"),
+        (row.get("a") or {}).get("title"),
+        "finished",
+        unmatched,
+    )
     if m is None:
         return None
     xg = row.get("xG") or {}
@@ -208,16 +241,22 @@ def validate(m: NormalizedMatch) -> list:
     return errors
 
 
-def cleanse_apifootball_row(row: dict, league_type: str,
-                            unmatched: list | None = None) -> NormalizedMatch | None:
+def cleanse_apifootball_row(
+    row: dict, league_type: str, unmatched: list | None = None
+) -> NormalizedMatch | None:
     """api-football fixture → NormalizedMatch(与 fdo 结构适配)。
 
     api-football fixture 结构: {fixture: {date, status.short}, teams: {home/away.name},
                                 goals: {home/away}};与 fdo(homeTeam/score.fullTime)不同。
     """
     status_map = {
-        "FT": "finished", "AET": "finished", "PEN": "finished",
-        "NS": "scheduled", "TBD": "scheduled", "PST": "postponed", "CANC": "cancelled",
+        "FT": "finished",
+        "AET": "finished",
+        "PEN": "finished",
+        "NS": "scheduled",
+        "TBD": "scheduled",
+        "PST": "postponed",
+        "CANC": "cancelled",
     }
     fixture = row.get("fixture") or {}
     status = status_map.get((fixture.get("status") or {}).get("short", ""), "scheduled")
@@ -226,7 +265,8 @@ def cleanse_apifootball_row(row: dict, league_type: str,
         _parse_date(fixture.get("date")),
         (row.get("teams") or {}).get("home", {}).get("name"),
         (row.get("teams") or {}).get("away", {}).get("name"),
-        status, unmatched,
+        status,
+        unmatched,
     )
     if m is None:
         return None
@@ -235,4 +275,3 @@ def cleanse_apifootball_row(row: dict, league_type: str,
         m.home_goals = _to_int(goals.get("home"))
         m.away_goals = _to_int(goals.get("away"))
     return m
-

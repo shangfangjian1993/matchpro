@@ -1,4 +1,5 @@
 """ELO-Goal 模型(§1.1 app/models/elo_goal):纯 ELO 期望进球。"""
+
 from __future__ import annotations
 
 # 期望进球基线 + 每 400 分差对应球数(与 attack ELO 一致)

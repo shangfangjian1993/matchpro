@@ -21,9 +21,14 @@ def _app_ctx():
 
 
 LEAGUE_CN_NAMES = {
-    "premier_league": "英超", "la_liga": "西甲", "bundesliga": "德甲",
-    "serie_a": "意甲", "ligue_1": "法甲", "champions_league": "欧冠",
-    "world_cup": "世界杯", "european_championship": "欧洲杯",
+    "premier_league": "英超",
+    "la_liga": "西甲",
+    "bundesliga": "德甲",
+    "serie_a": "意甲",
+    "ligue_1": "法甲",
+    "champions_league": "欧冠",
+    "world_cup": "世界杯",
+    "european_championship": "欧洲杯",
 }
 
 
@@ -31,8 +36,13 @@ def _normalize_league_type(league_type_value: str) -> str:
     """统一为小写枚举值(LeagueType.X.value);采集器配置表若传大写枚举名
     (如 PREMIER_LEAGUE)则转换"""
     from app.core.config import LeagueType
+
     try:
-        lt = LeagueType[league_type_value] if league_type_value.isupper() else LeagueType(league_type_value)
+        lt = (
+            LeagueType[league_type_value]
+            if league_type_value.isupper()
+            else LeagueType(league_type_value)
+        )
         return lt.value
     except (KeyError, ValueError):
         return league_type_value.lower()
@@ -45,10 +55,10 @@ def _get_or_create_league(db, League, league_type_value: str, season_label: str)
     if league:
         return league
     name = LEAGUE_CN_NAMES.get(league_type_value, league_type_value)
-    league = League(name=name, country="", season=season_label, league_type=league_type_value)
+    league = League(
+        name=name, country="", season=season_label, league_type=league_type_value
+    )
     db.session.add(league)
     db.session.commit()
     logger.info("已创建联赛记录: %s (%s)", name, season_label)
     return league
-
-

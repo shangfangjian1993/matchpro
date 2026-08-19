@@ -9,6 +9,7 @@
 
 配置:configs/models.yaml → prediction.prior_blend(enabled/window/alpha/min_history)。
 """
+
 from __future__ import annotations
 
 import logging
@@ -21,7 +22,10 @@ logger = logging.getLogger(__name__)
 def _cfg() -> dict:
     try:
         from app.core.config import load_yaml
-        return (load_yaml("models.yaml").get("prediction") or {}).get("prior_blend") or {}
+
+        return (load_yaml("models.yaml").get("prediction") or {}).get(
+            "prior_blend"
+        ) or {}
     except Exception:
         return {}
 
@@ -29,11 +33,17 @@ def _cfg() -> dict:
 def recent_freqs(league_id, cutoff_dt, window: int = 100, min_history: int = 50):
     """截止 cutoff_dt(严格更早)最近 window 场完赛的实际 1X2 频率。"""
     from app.api.db import Match
-    rows = (Match.query.filter(
-                Match.league_id == league_id,
-                Match.match_status == "finished",
-                Match.match_date < cutoff_dt)
-            .order_by(Match.match_date.desc()).limit(window).all())
+
+    rows = (
+        Match.query.filter(
+            Match.league_id == league_id,
+            Match.match_status == "finished",
+            Match.match_date < cutoff_dt,
+        )
+        .order_by(Match.match_date.desc())
+        .limit(window)
+        .all()
+    )
     if len(rows) < min_history:
         return None
     n = len(rows)
@@ -62,8 +72,12 @@ def blend(league_id, cutoff_dt, probs) -> tuple[np.ndarray | None, dict | None]:
     if s <= 0:
         return None, None
     out = out / s
-    return out, {"method": "recent_freq_prior", "alpha": alpha, "window": window,
-                 "freqs": [round(float(x), 4) for x in freqs]}
+    return out, {
+        "method": "recent_freq_prior",
+        "alpha": alpha,
+        "window": window,
+        "freqs": [round(float(x), 4) for x in freqs],
+    }
 
 
 def blend_matrix(league_id, cutoff_dt, probs, matrix):
@@ -88,9 +102,11 @@ def blend_matrix(league_id, cutoff_dt, probs, matrix):
     try:
         from app.prediction.regime import detect as _detect
         from app.prediction.regime import dynamic_alpha as _dyn_alpha
+
         _reg = _detect(league_id, cutoff_dt, window=window)
-        alpha = _dyn_alpha(_reg.get("shift_score", 0.0),
-                           regime=_reg.get("regime", "NORMAL"))
+        alpha = _dyn_alpha(
+            _reg.get("shift_score", 0.0), regime=_reg.get("regime", "NORMAL")
+        )
     except Exception:
         _reg, alpha = {}, float(cfg.get("alpha", 0.6))
     p = np.asarray(probs, dtype=float)
@@ -101,11 +117,17 @@ def blend_matrix(league_id, cutoff_dt, probs, matrix):
     target = target / s
     try:
         from app.prediction.regime import ipf_to_target
+
         m2 = ipf_to_target(np.asarray(matrix, dtype=float), tuple(target))
     except Exception:
         return None, None
-    info = {"method": "ipf_regime_adjust", "alpha": round(alpha, 4),
-            "window": window, "freqs": [round(float(x), 4) for x in freqs],
-            "regime": _reg.get("regime"), "shift_score": _reg.get("shift_score"),
-            "target_1x2": [round(float(x), 4) for x in target]}
+    info = {
+        "method": "ipf_regime_adjust",
+        "alpha": round(alpha, 4),
+        "window": window,
+        "freqs": [round(float(x), 4) for x in freqs],
+        "regime": _reg.get("regime"),
+        "shift_score": _reg.get("shift_score"),
+        "target_1x2": [round(float(x), 4) for x in target],
+    }
     return m2, info

@@ -1,4 +1,5 @@
 """V2 预测端点(新设计:预测 + 快照 + 复盘统一)"""
+
 import os
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -12,7 +13,9 @@ from app.prediction.tournament import predict_tournament
 
 router = APIRouter(prefix="/api/predictions", tags=["predictions"])
 
-MODELS_DIR = os.environ.get("MODELS_DIR", str(__import__("app.core.paths", fromlist=["MODELS_DIR"]).MODELS_DIR))
+MODELS_DIR = os.environ.get(
+    "MODELS_DIR", str(__import__("app.core.paths", fromlist=["MODELS_DIR"]).MODELS_DIR)
+)
 
 
 @router.post("/match")
@@ -20,8 +23,12 @@ def predict_match_endpoint(body: PredictMatchReq, user=Depends(get_current_user)
     try:
         league_type = _resolve_league_type(body.league_type)
         result = predict_match(
-            league_type, body.home_team.strip(), body.away_team.strip(),
-            body.date, models_dir=MODELS_DIR)
+            league_type,
+            body.home_team.strip(),
+            body.away_team.strip(),
+            body.date,
+            models_dir=MODELS_DIR,
+        )
     except ValueError as e:
         raise HTTPException(400, str(e))
     except Exception as e:
@@ -45,13 +52,16 @@ def predict_match_endpoint(body: PredictMatchReq, user=Depends(get_current_user)
 
 
 @router.post("/tournament")
-def predict_tournament_endpoint(body: PredictTournamentReq, user=Depends(get_current_user)):
+def predict_tournament_endpoint(
+    body: PredictTournamentReq, user=Depends(get_current_user)
+):
     try:
         league_type = _resolve_league_type(body.league_type)
         teams = [t.name if isinstance(t, dict) else str(t) for t in body.teams]
         teams = [t for t in teams if t and t != "None"]
         result = predict_tournament(
-            league_type, teams, body.num_simulations, models_dir=MODELS_DIR)
+            league_type, teams, body.num_simulations, models_dir=MODELS_DIR
+        )
     except ValueError as e:
         raise HTTPException(400, str(e))
     except Exception as e:
@@ -61,14 +71,26 @@ def predict_tournament_endpoint(body: PredictTournamentReq, user=Depends(get_cur
 
 @router.get("")
 def list_predictions(user=Depends(get_current_user)):
-    predictions = (Prediction.query.filter_by(user_id=user.id)
-                   .order_by(Prediction.created_at.desc()).limit(200).all())
+    predictions = (
+        Prediction.query.filter_by(user_id=user.id)
+        .order_by(Prediction.created_at.desc())
+        .limit(200)
+        .all()
+    )
     match_ids = {p.match_id for p in predictions if p.match_id}
-    match_map = {m.id: m for m in Match.query.filter(Match.id.in_(match_ids)).all()} if match_ids else {}
-    return {"items": [p.to_dict(match_map=match_map) for p in predictions], "total": len(predictions)}
+    match_map = (
+        {m.id: m for m in Match.query.filter(Match.id.in_(match_ids)).all()}
+        if match_ids
+        else {}
+    )
+    return {
+        "items": [p.to_dict(match_map=match_map) for p in predictions],
+        "total": len(predictions),
+    }
 
 
 # ---------------- 快照 / 复盘(V2 核心) ----------------
+
 
 @router.get("/snapshots")
 def snapshots(limit: int = Query(50, ge=1, le=500), league: str | None = None):
@@ -76,6 +98,7 @@ def snapshots(limit: int = Query(50, ge=1, le=500), league: str | None = None):
     if league:
         # 快照无 league 列,经 league_id 关联(§2.1)
         from app.api.db import League
+
         _lg = League.query.filter_by(league_type=league).first()
         if _lg is None:
             return {"items": [], "total": 0}
@@ -86,8 +109,10 @@ def snapshots(limit: int = Query(50, ge=1, le=500), league: str | None = None):
 
 def _snap_dict(s) -> dict:
     return {
-        "id": s.id, "league": getattr(s, "league", None),
-        "home_team": getattr(s, "home_team", None), "away_team": getattr(s, "away_team", None),
+        "id": s.id,
+        "league": getattr(s, "league", None),
+        "home_team": getattr(s, "home_team", None),
+        "away_team": getattr(s, "away_team", None),
         "match_date": str(getattr(s, "match_date", "") or ""),
         "predicted_home_goals": getattr(s, "predicted_home_goals", None),
         "predicted_away_goals": getattr(s, "predicted_away_goals", None),

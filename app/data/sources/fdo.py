@@ -1,4 +1,5 @@
 """fdo 源适配器:football-data.org 赛程/赛果 API。"""
+
 import json
 
 from app.data.sources.http import http_get

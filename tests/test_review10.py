@@ -7,6 +7,7 @@ import numpy as np
 def test_regime_shift_weighted_composite():
     """shift_score 为加权复合(非 max),单维 cap 0.35(审查十 P1-2)。"""
     from app.prediction.regime import dynamic_alpha
+
     # 单维极端(0.95 压缩)被 cap → shift 不因单一噪声爆炸
     alpha_shift = dynamic_alpha(0.95, regime="STRENGTH_COMPRESSED")
     alpha_normal = dynamic_alpha(0.0, regime="NORMAL")
@@ -19,6 +20,7 @@ def test_ipf_target_convergence():
     """IPF:矩阵边缘精确收敛到目标 1X2,类内结构保持。"""
     from app.models.ensemble import _pois_matrix
     from app.prediction.regime import ipf_to_target
+
     m = _pois_matrix(1.5, 1.2)
     before = m[np.tril_indices_from(m, -1)].sum()
     t = (0.40, 0.34, 0.26)
@@ -35,6 +37,7 @@ def test_ipf_target_convergence():
 def test_ipf_strength_dispersion_logic():
     """净胜球 latent strength:进攻相同但防守不同 → 强度不同(审查十 P1-1)。"""
     import collections
+
     per_team = collections.defaultdict(list)
     # T0:进 3 失 0;T1:进 3 失 2 —— 强度应明显不同
     for _ in range(4):
@@ -54,6 +57,7 @@ def test_ipf_strength_dispersion_logic():
 def test_blend_matrix_alpha_bounds():
     """动态 α 在 [0.55, 0.85] 且随 shift 单调下降。"""
     from app.prediction.regime import dynamic_alpha
+
     a0 = dynamic_alpha(0.0)
     a1 = dynamic_alpha(0.5)
     a2 = dynamic_alpha(1.0)
@@ -64,15 +68,17 @@ def test_blend_matrix_alpha_bounds():
 # ── Invariants(审查十 P1-4)───────────────────────────────────────────────
 def test_invariants_probability_vector():
     from app.prediction.invariants import check_probability_vector
+
     assert check_probability_vector([0.5, 0.3, 0.2]) == []
-    assert len(check_probability_vector([0.5, 0.5, 0.2])) > 0      # 和≠1
-    assert len(check_probability_vector([1.2, -0.1, 0.0])) > 0     # 越界
-    assert len(check_probability_vector([0.5, np.nan, 0.5])) > 0   # NaN
+    assert len(check_probability_vector([0.5, 0.5, 0.2])) > 0  # 和≠1
+    assert len(check_probability_vector([1.2, -0.1, 0.0])) > 0  # 越界
+    assert len(check_probability_vector([0.5, np.nan, 0.5])) > 0  # NaN
 
 
 def test_invariants_matrix_marginal():
     from app.models.ensemble import _pois_matrix
     from app.prediction.invariants import check_matrix, check_matrix_marginal
+
     m = _pois_matrix(1.5, 1.2)
     assert check_matrix(m) == []
     hw = float(m[np.tril_indices_from(m, -1)].sum())
@@ -84,11 +90,16 @@ def test_invariants_matrix_marginal():
 
 def test_invariants_top_scores():
     from app.prediction.invariants import check_top_scores
-    ok = [{"home": 1, "away": 0, "probability": 0.15},
-          {"home": 1, "away": 1, "probability": 0.12}]
+
+    ok = [
+        {"home": 1, "away": 0, "probability": 0.15},
+        {"home": 1, "away": 1, "probability": 0.12},
+    ]
     assert check_top_scores(ok) == []
-    bad = [{"home": 1, "away": 0, "probability": 0.6},
-           {"home": 1, "away": 1, "probability": 0.7}]  # 未递减
+    bad = [
+        {"home": 1, "away": 0, "probability": 0.6},
+        {"home": 1, "away": 1, "probability": 0.7},
+    ]  # 未递减
     assert len(check_top_scores(bad)) > 0
 
 
@@ -96,6 +107,7 @@ def test_invariants_xg_consistency():
     """xG(矩阵期望)与 λ 一致(截断矩阵容差内)。"""
     from app.models.ensemble import _pois_matrix
     from app.prediction.invariants import check_xg
+
     m = _pois_matrix(1.5, 1.2)
     grid = np.arange(10.0)
     xg_h = float((m * grid[:, None]).sum())

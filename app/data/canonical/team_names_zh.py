@@ -9,6 +9,7 @@
     to_zh("Arsenal FC")     # → 阿森纳
     to_en("阿森纳")          # → Arsenal FC
 """
+
 from __future__ import annotations
 
 import threading
@@ -315,7 +316,6 @@ _BUILTIN: dict[str, str] = {
     "United States": "美国",
     "Uruguay": "乌拉圭",
     "Wales": "威尔士",
-
     "Borussia Mönchengladbach": "门兴格拉德巴赫",
     "Córdoba CF": "科尔多瓦",
     "FC København": "哥本哈根",
@@ -348,8 +348,8 @@ for _en, _zh in _BUILTIN.items():
     _BUILTIN_REV.setdefault(_zh, _en)
 
 # ---- DB 缓存(首次访问加载;invalidate() 失效)----
-_db_fwd: dict[str, str] | None = None      # en → zh
-_db_rev: dict[str, str] | None = None      # zh → en
+_db_fwd: dict[str, str] | None = None  # en → zh
+_db_rev: dict[str, str] | None = None  # zh → en
 _cache_lock = threading.Lock()
 
 
@@ -357,6 +357,7 @@ def _load_from_db() -> tuple[dict[str, str], dict[str, str]] | None:
     """从 team_names 表加载全量映射;无表/无 app context/异常返回 None(回退内置)。"""
     try:
         from app.api.db import TeamName, db
+
         rows = db.session.query(TeamName).all()
         if not rows:
             return None
@@ -414,6 +415,7 @@ def to_en(name: str) -> str:
 def seed_from_builtin() -> int:
     """把内置种子写入 team_names 表(幂等 upsert);返回写入条数。"""
     from app.api.db import TeamName, db
+
     n = 0
     for en, zh in _BUILTIN.items():
         row = db.session.get(TeamName, en)
@@ -430,8 +432,11 @@ def seed_from_builtin() -> int:
 
 if __name__ == "__main__":
     # 自测(无 DB 时验证内置映射)
-    tests = [("Arsenal FC", "阿森纳"), ("FC Internazionale Milano", "国际米兰"),
-             ("Sporting Clube de Portugal", "葡萄牙体育")]
+    tests = [
+        ("Arsenal FC", "阿森纳"),
+        ("FC Internazionale Milano", "国际米兰"),
+        ("Sporting Clube de Portugal", "葡萄牙体育"),
+    ]
     for en, zh in tests:
         assert to_zh(en) == zh, f"{en} -> {to_zh(en)}"
     assert to_en("阿森纳") == "Arsenal FC"

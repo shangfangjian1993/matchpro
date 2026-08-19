@@ -12,6 +12,7 @@
   probs: [home_win, draw, away_win](预测概率,和=1)
   actual: 0=主胜 1=平 2=客胜(或实际进球数)
 """
+
 from __future__ import annotations
 
 import math
@@ -60,7 +61,7 @@ def goal_mae_rmse(pred_goals, actual_goals) -> tuple[float, float]:
     p = np.asarray(pred_goals, dtype=float)
     a = np.asarray(actual_goals, dtype=float)
     err = p - a
-    return float(np.abs(err).mean()), float(np.sqrt((err ** 2).mean()))
+    return float(np.abs(err).mean()), float(np.sqrt((err**2).mean()))
 
 
 def accuracy(probs_list: list, actuals: list) -> float:
@@ -95,18 +96,23 @@ if __name__ == "__main__":
 
 # ── 审查九 二十二/三十四:Metrics 深化 ────────────────────────────────────
 
-def calibration_slope_intercept(probs_list: list, actuals: list,
-                                n_bins: int = 10) -> dict:
+
+def calibration_slope_intercept(
+    probs_list: list, actuals: list, n_bins: int = 10
+) -> dict:
     """校准回归:conf = slope·acc + intercept(审查二十二)。
 
     将预测置信度分桶,对 (桶平均置信度, 桶实际频率) 做线性拟合;
     slope≈1 & intercept≈0 表示理想校准。slope<1 → 过度自信。
     """
     import numpy as np
+
     if not probs_list:
         return {"slope": None, "intercept": None, "n_bins": 0}
     conf = np.array([max(p) for p in probs_list])
-    acc = (np.array([np.argmax(p) for p in probs_list]) == np.array(actuals)).astype(float)
+    acc = (np.array([np.argmax(p) for p in probs_list]) == np.array(actuals)).astype(
+        float
+    )
     edges = np.linspace(0.0, 1.0, n_bins + 1)
     xs, ys = [], []
     for i in range(n_bins):
@@ -117,13 +123,17 @@ def calibration_slope_intercept(probs_list: list, actuals: list,
     if len(xs) < 2:
         return {"slope": None, "intercept": None, "n_bins": len(xs)}
     slope, intercept = np.polyfit(xs, ys, 1)
-    return {"slope": round(float(slope), 4), "intercept": round(float(intercept), 4),
-            "n_bins": len(xs)}
+    return {
+        "slope": round(float(slope), 4),
+        "intercept": round(float(intercept), 4),
+        "n_bins": len(xs),
+    }
 
 
 def sharpness(probs_list: list) -> float:
     """锐度:预测概率分布的集中度(审查二十二)。"""
     import numpy as np
+
     if not probs_list:
         return 0.0
     p = np.array(probs_list)
@@ -138,9 +148,14 @@ def brier_decomposition(probs_list: list, actuals: list, n_bins: int = 10) -> di
     - Uncertainty:内在不确定性(常数)
     """
     import numpy as np
+
     if not probs_list:
-        return {"reliability": None, "resolution": None, "uncertainty": None,
-                "brier": None}
+        return {
+            "reliability": None,
+            "resolution": None,
+            "uncertainty": None,
+            "brier": None,
+        }
     probs = np.array(probs_list)
     k = probs.shape[1]
     actuals = np.array(actuals)
@@ -164,32 +179,46 @@ def brier_decomposition(probs_list: list, actuals: list, n_bins: int = 10) -> di
         rel += n * float(np.sum((o_bar - p_bar) ** 2))
         res += n * float(np.sum((o_bar - base) ** 2))
     n = len(actuals)
-    return {"reliability": round(float(rel / n), 5), "resolution": round(float(res / n), 5),
-            "uncertainty": round(float(uncertainty), 5), "brier": round(float(brier), 5)}
+    return {
+        "reliability": round(float(rel / n), 5),
+        "resolution": round(float(res / n), 5),
+        "uncertainty": round(float(uncertainty), 5),
+        "brier": round(float(brier), 5),
+    }
 
 
-def logloss_by_bucket(probs_list: list, actuals: list, edges=(0.5, 0.6, 0.7, 0.8, 0.9)) -> dict:
+def logloss_by_bucket(
+    probs_list: list, actuals: list, edges=(0.5, 0.6, 0.7, 0.8, 0.9)
+) -> dict:
     """LogLoss 按概率桶(审查二十二):看模型在哪个置信区间失真。"""
     if not probs_list:
         return {}
     out = {}
     buckets = [0.0] + list(edges) + [1.01]
-    for lo, hi in zip(buckets[:-1], buckets[1:]):
+    for lo, hi in __import__("itertools").pairwise(buckets):
         idx = [i for i, p in enumerate(probs_list) if lo <= max(p) < hi]
         if len(idx) >= 10:
             ll = sum(log_loss(probs_list[i], actuals[i]) for i in idx) / len(idx)
-            acc = sum(1 for i in idx if np.argmax(probs_list[i]) == actuals[i]) / len(idx)
-            out[f"{lo:.2f}-{hi:.2f}"] = {"n": len(idx), "log_loss": round(float(ll), 4),
-                                         "accuracy": round(float(acc), 4)}
+            acc = sum(1 for i in idx if np.argmax(probs_list[i]) == actuals[i]) / len(
+                idx
+            )
+            out[f"{lo:.2f}-{hi:.2f}"] = {
+                "n": len(idx),
+                "log_loss": round(float(ll), 4),
+                "accuracy": round(float(acc), 4),
+            }
     return out
 
 
-def score_log_likelihood(score_matrix, actual_goals: tuple[int, int], eps: float = 1e-12) -> float:
+def score_log_likelihood(
+    score_matrix, actual_goals: tuple[int, int], eps: float = 1e-12
+) -> float:
     """比分分布对数似然(审查二十三:Top-K 只是辅助,核心用分布 LL)。
 
     score_matrix: 10x10 概率矩阵;实际比分越界(≥10)时用边缘尾部近似。
     """
     import numpy as np
+
     m = np.asarray(score_matrix, dtype=float)
     if m.size == 0:
         return 0.0
@@ -205,18 +234,26 @@ def score_log_likelihood(score_matrix, actual_goals: tuple[int, int], eps: float
 
 
 # 便捷聚合:一次算全(供 summarize/backfill 使用)
-def extended_metrics(probs_list: list, actuals: list, score_matrices: list | None = None,
-                     actual_scores: list | None = None) -> dict:
+def extended_metrics(
+    probs_list: list,
+    actuals: list,
+    score_matrices: list | None = None,
+    actual_scores: list | None = None,
+) -> dict:
     """全套扩展指标(审查九 二十二/三十四)。"""
     out = {
         "brier_decomp": brier_decomposition(probs_list, actuals),
         "calibration_slope": calibration_slope_intercept(probs_list, actuals)["slope"],
-        "calibration_intercept": calibration_slope_intercept(probs_list, actuals)["intercept"],
+        "calibration_intercept": calibration_slope_intercept(probs_list, actuals)[
+            "intercept"
+        ],
         "sharpness": sharpness(probs_list),
         "logloss_by_bucket": logloss_by_bucket(probs_list, actuals),
     }
     if score_matrices and actual_scores and len(score_matrices) == len(actual_scores):
-        sll = [score_log_likelihood(m, s) for m, s in zip(score_matrices, actual_scores)]
+        sll = [
+            score_log_likelihood(m, s) for m, s in zip(score_matrices, actual_scores)
+        ]
         out["score_log_likelihood_mean"] = round(float(np.mean(sll)), 5)
         out["score_log_likelihood_n"] = len(sll)
     return out

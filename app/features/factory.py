@@ -2,6 +2,7 @@
 
 顺序:strength(ELO)→ attack_defense(进失球/指标)→ form(胜率/近期)→ h2h(交手)。
 """
+
 from __future__ import annotations
 
 import logging
@@ -10,34 +11,39 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-from app.features.rolling import build_long_table
-from app.features.strength import compute as compute_strength
-from app.features.attack_defense import (compute_attack_defense,
-                                         compute_metric_rolling,
-                                         compute_side_metric_rolling)
+from app.features.attack_defense import (
+    compute_attack_defense,
+    compute_metric_rolling,
+    compute_side_metric_rolling,
+)
 from app.features.form import compute_form
 from app.features.h2h import compute_h2h
+from app.features.rolling import build_long_table
+from app.features.strength import compute as compute_strength
 
 
-def compute_all(df: pd.DataFrame,
-                league_type: str | None = None,
-                metric_columns: tuple = (),
-                side_metric_columns: tuple = (),
-                hist_matches=None) -> pd.DataFrame:
+def compute_all(
+    df: pd.DataFrame,
+    league_type: str | None = None,
+    metric_columns: tuple = (),
+    side_metric_columns: tuple = (),
+    hist_matches=None,
+) -> pd.DataFrame:
     """统一特征计算(审查 §18:ELO 注入也在 Factory 内,外部不再 with_elo_features)。"""
     out = compute_strength(df, league_type)  # 01 Team Strength(ELO)
     long, _ = build_long_table(out)
     out = compute_attack_defense(out, long)  # 02 Attack/Defense
-    out = compute_form(out, long)             # 03 Form & Momentum
+    out = compute_form(out, long)  # 03 Form & Momentum
     # 审查七 V7-3:H2H 默认关闭(configs/models.yaml features.h2h)——
     # 样本少+阵容/教练变化大,2021 交手≠2026 交手;特殊场景再开
     try:
         from app.core.config import load_yaml
+
         _h2h_enabled = (load_yaml("models.yaml").get("features") or {}).get("h2h", True)
     except Exception:
         _h2h_enabled = True
     if _h2h_enabled:
-        out = compute_h2h(out)                # 06 Opponent Interaction
+        out = compute_h2h(out)  # 06 Opponent Interaction
     for metric in metric_columns:
         out = compute_metric_rolling(out, metric, metric)
     for metric in side_metric_columns:
@@ -50,16 +56,20 @@ def compute_all(df: pd.DataFrame,
     if hist_matches:
         # 审查 ae724d5:按 match_id 显式 merge(不依赖行序/index 对齐)
         from app.features.stats_features import rolling_team_stats as _rolling_stats
-        _stats_df = _rolling_stats(hist_matches)   # index=match_id;空或 NaN 列则跳过
-        _stat_cols = [col for col in _stats_df.columns
-                      if col.startswith("home_tms") or col.startswith("away_tms")]
+
+        _stats_df = _rolling_stats(hist_matches)  # index=match_id;空或 NaN 列则跳过
+        _stat_cols = [
+            col for col in _stats_df.columns if col.startswith(("home_tms", "away_tms"))
+        ]
         if _stat_cols and len(_stats_df):
             _idx = out.index
             _tmp = out.reset_index(drop=True)
-            _tmp["match_id"] = [m.id for m in hist_matches]   # 与 hist 顺序一致(调用方保证)
+            _tmp["match_id"] = [
+                m.id for m in hist_matches
+            ]  # 与 hist 顺序一致(调用方保证)
             _stats_right = _stats_df[_stat_cols].copy()
             _stats_right["match_id"] = _stats_right.index
             out = pd.merge(_tmp, _stats_right, on="match_id", how="left")
-            out = out.drop(columns=["match_id"])              # 仅作对齐键,不作特征
+            out = out.drop(columns=["match_id"])  # 仅作对齐键,不作特征
             out = out.set_index(_idx)
     return out

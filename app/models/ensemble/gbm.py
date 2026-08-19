@@ -5,6 +5,7 @@
 
 评估先行:独立训练 + holdout 指标,数据驱动决定接入权重。
 """
+
 from __future__ import annotations
 
 import os
@@ -19,8 +20,11 @@ class GbmClassifier:
 
     def __init__(self, params: dict | None = None):
         self.params = params or {
-            "max_depth": 4, "learning_rate": 0.05, "max_iter": 200,
-            "min_samples_leaf": 20, "random_state": 42,
+            "max_depth": 4,
+            "learning_rate": 0.05,
+            "max_iter": 200,
+            "min_samples_leaf": 20,
+            "random_state": 42,
         }
         self.model = None
         self.feature_columns_ = []
@@ -33,10 +37,12 @@ class GbmClassifier:
         再评估 —— 修复"全量 fit 后再切 20% 评估"的数据泄漏。
         """
         from sklearn.ensemble import HistGradientBoostingClassifier
+
         n = len(X)
         # 审查 P1-7:按日期分组切分(同一比赛日不跨 train/test)
         if "date" in X.columns:
             from app.models.utils import date_group_split
+
             _df_tmp = X.copy()
             _trn, _eva = date_group_split(_df_tmp, ratio=0.8)
             X_train, X_eval = _trn, _eva
@@ -46,7 +52,7 @@ class GbmClassifier:
             X_train, y_train = X.iloc[:split], y.iloc[:split]
             X_eval, y_eval = X.iloc[split:], y.iloc[split:]
         self.model = HistGradientBoostingClassifier(**self.params)
-        self.model.fit(X_train, y_train)          # 前 80% 训练(时间安全)
+        self.model.fit(X_train, y_train)  # 前 80% 训练(时间安全)
         self.feature_columns_ = list(X.columns)
         self.is_trained = True
         p = self.model.predict_proba(X_eval)
@@ -54,10 +60,23 @@ class GbmClassifier:
         self.model.fit(X, y)
         from app.replay.metrics import accuracy, brier_score, log_loss
         from app.replay.metrics import rps as _rps
+
         return {
-            "log_loss": round(sum(log_loss(p[i], y_eval.iloc[i]) for i in range(len(y_eval))) / len(y_eval), 5),
-            "brier": round(sum(brier_score(p[i], y_eval.iloc[i]) for i in range(len(y_eval))) / len(y_eval), 5),
-            "rps": round(sum(_rps(p[i], y_eval.iloc[i]) for i in range(len(y_eval))) / len(y_eval), 5),
+            "log_loss": round(
+                sum(log_loss(p[i], y_eval.iloc[i]) for i in range(len(y_eval)))
+                / len(y_eval),
+                5,
+            ),
+            "brier": round(
+                sum(brier_score(p[i], y_eval.iloc[i]) for i in range(len(y_eval)))
+                / len(y_eval),
+                5,
+            ),
+            "rps": round(
+                sum(_rps(p[i], y_eval.iloc[i]) for i in range(len(y_eval)))
+                / len(y_eval),
+                5,
+            ),
             "accuracy": round(accuracy([list(x) for x in p], y_eval.tolist()), 4),
         }
 
@@ -69,8 +88,14 @@ class GbmClassifier:
 
     def save(self, path: str) -> None:
         with open(path, "wb") as f:
-            pickle.dump({"model": self.model, "features": self.feature_columns_,
-                         "params": self.params}, f)
+            pickle.dump(
+                {
+                    "model": self.model,
+                    "features": self.feature_columns_,
+                    "params": self.params,
+                },
+                f,
+            )
 
     @classmethod
     def load(cls, path: str) -> GbmClassifier | None:

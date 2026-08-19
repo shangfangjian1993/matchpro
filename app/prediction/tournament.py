@@ -2,6 +2,7 @@
 
 Monte Carlo baseline(诚实定位:未建模主客场/阵容/抽签约束/加时点球)。
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -13,10 +14,13 @@ from app.data.adapters import matches_to_dataframe
 from app.models.loader import _load_model
 
 
-def predict_tournament(league_type: LeagueType, teams: list,
-                       num_simulations: int = 1000,
-                       models_dir: str | None = None,
-                       seed: int | None = None) -> dict:
+def predict_tournament(
+    league_type: LeagueType,
+    teams: list,
+    num_simulations: int = 1000,
+    models_dir: str | None = None,
+    seed: int | None = None,
+) -> dict:
     """
     赛事模拟:对每支球队预测当前进球强度,单淘汰随机配对模拟,
     统计各队夺冠频率。
@@ -25,6 +29,7 @@ def predict_tournament(league_type: LeagueType, teams: list,
           传入固定值可复现结果。
     """
     from app.core.paths import MODELS_DIR as _MD
+
     models_dir = models_dir or str(_MD)
     from app.api.db import League, Match
 
@@ -62,8 +67,9 @@ def predict_tournament(league_type: LeagueType, teams: list,
     away_part["gf"] = away_part["away_goals"]
     away_part["ga"] = away_part["home_goals"]
     long = pd.concat([home_part, away_part])[["team", "gf", "ga"]]
-    long["pts"] = np.where(long["gf"] > long["ga"], 3.0,
-                           np.where(long["gf"] == long["ga"], 1.0, 0.0))
+    long["pts"] = np.where(
+        long["gf"] > long["ga"], 3.0, np.where(long["gf"] == long["ga"], 1.0, 0.0)
+    )
     strength = long.groupby("team")["pts"].mean()
 
     # 一次性构造全部球队的预测行(对手=参赛队中最强者),单次 predict 拿到所有 λ。
@@ -76,9 +82,18 @@ def predict_tournament(league_type: LeagueType, teams: list,
             (t for t in teams if t != team),
             key=lambda t: float(strength.get(t, 0.0)),
         )
-        pad_rows.append({"date": now_ts, "home_team": team, "away_team": opponent,
-                         "home_goals": np.nan, "away_goals": np.nan, "goals": np.nan,
-                         "league": league.name, "season": league.season or ""})
+        pad_rows.append(
+            {
+                "date": now_ts,
+                "home_team": team,
+                "away_team": opponent,
+                "home_goals": np.nan,
+                "away_goals": np.nan,
+                "goals": np.nan,
+                "league": league.name,
+                "season": league.season or "",
+            }
+        )
     pred_df = pd.concat([hist_df, pd.DataFrame(pad_rows)], ignore_index=True)
     raw = model.predict(pred_df)
     preds = raw["predictions"]
@@ -112,7 +127,11 @@ def predict_tournament(league_type: LeagueType, teams: list,
 
     total = sum(champion_counts.values()) or 1
     champion_probs = sorted(
-        [{"team": t, "probability": round(c / total, 4)} for t, c in champion_counts.items() if c > 0],
+        [
+            {"team": t, "probability": round(c / total, 4)}
+            for t, c in champion_counts.items()
+            if c > 0
+        ],
         key=lambda x: -x["probability"],
     )
     most_likely = champion_probs[0]["team"] if champion_probs else None

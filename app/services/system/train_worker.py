@@ -11,6 +11,7 @@
 
 环境变量:DATABASE_URL(同 API)、MODELS_DIR(默认 <项目根>/models)。
 """
+
 import argparse
 import logging
 
@@ -20,7 +21,9 @@ import os
 import sys
 
 # ---- sys.path 修复:从任意 cwd 启动都可导入包 ----
-_ROOT = str(__import__('app.core.paths', fromlist=['PROJECT_ROOT']).PROJECT_ROOT)  # 项目根
+_ROOT = str(
+    __import__("app.core.paths", fromlist=["PROJECT_ROOT"]).PROJECT_ROOT
+)  # 项目根
 _PKG_DIR = os.path.join(_ROOT, "src")  # src 布局:包在 src/ 下
 for _p in (_PKG_DIR, _ROOT):
     if _p not in sys.path:
@@ -44,14 +47,15 @@ def main() -> int:
         init_db,
         session_scope,
     )
+    from app.api.db import default_database_url as _dflt
     from app.core.timeutil import utcnow
     from app.data.adapters import _resolve_league_type
     from app.services.training.trainer import train_model
 
-    from app.api.db import default_database_url as _dflt
     init_db(os.environ.get("DATABASE_URL") or _dflt())
 
     from app.core.paths import MODELS_DIR as _MD
+
     models_dir = os.environ.get("MODELS_DIR") or str(_MD)
 
     with session_scope():
@@ -74,15 +78,17 @@ def main() -> int:
                 models_dir=models_dir,
             )
         except Exception as e:
-            _logger.exception("训练任务 %s 失败: %s", args.task_id, e)
+            _logger.exception("训练任务 %s 失败", args.task_id)
             task.status = "failed"
             task.message = f"训练失败: {e}"
             task.finished_at = utcnow()
-            db.session.add(Notification(
-                user_id=task.user_id,
-                title="模型训练失败",
-                content=f"{args.league_type} 模型训练失败: {e}",
-            ))
+            db.session.add(
+                Notification(
+                    user_id=task.user_id,
+                    title="模型训练失败",
+                    content=f"{args.league_type} 模型训练失败: {e}",
+                )
+            )
             db.session.commit()
             return 1
 
@@ -108,13 +114,17 @@ def main() -> int:
         task.message = "训练完成"
         task.metrics_json = json.dumps(metrics, ensure_ascii=False, default=str)
         task.finished_at = utcnow()
-        db.session.add(Notification(
-            user_id=task.user_id,
-            title="模型训练完成",
-            content=(f"{args.league_type} 模型训练完成,"
-                     f"版本 v{metrics.get('model_version', '?')},"
-                     f"MSE {float(metrics.get('mse', 0.0) or 0.0):.4f}"),
-        ))
+        db.session.add(
+            Notification(
+                user_id=task.user_id,
+                title="模型训练完成",
+                content=(
+                    f"{args.league_type} 模型训练完成,"
+                    f"版本 v{metrics.get('model_version', '?')},"
+                    f"MSE {float(metrics.get('mse', 0.0) or 0.0):.4f}"
+                ),
+            )
+        )
         db.session.commit()
         print(f"训练完成: {args.league_type} v{metrics.get('model_version')}")
         return 0
@@ -122,4 +132,5 @@ def main() -> int:
 
 if __name__ == "__main__":
     from app.services.cli import run
+
     raise SystemExit(run(main))

@@ -1,4 +1,5 @@
 """V2 认证端点(新设计)"""
+
 from fastapi import APIRouter, Depends, HTTPException, Response
 
 from app.api.db import User, db
@@ -29,7 +30,9 @@ def register(body: AuthRegister):
         raise HTTPException(409, "用户名已存在")
     if User.query.filter_by(email=email).first():
         raise HTTPException(409, "邮箱已被注册")
-    user = User(username=username, email=email, password_hash=_hash_password(body.password))
+    user = User(
+        username=username, email=email, password_hash=_hash_password(body.password)
+    )
     db.session.add(user)
     db.session.commit()
     return {"user": user.to_dict()}

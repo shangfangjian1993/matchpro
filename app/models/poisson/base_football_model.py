@@ -27,9 +27,13 @@ def _feature_flag(name: str, default: bool = True) -> bool:
         import os as _os
 
         import yaml as _yaml
+
         # app/models/poisson/base_football_model.py → 上 4 级 = 项目根
-        _root = _os.path.dirname(_os.path.dirname(_os.path.dirname(
-            _os.path.dirname(_os.path.abspath(__file__)))))
+        _root = _os.path.dirname(
+            _os.path.dirname(
+                _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+            )
+        )
         _path = _os.path.join(_root, "configs", "models.yaml")
         if _os.path.exists(_path):
             with open(_path, encoding="utf-8") as _f:
@@ -42,9 +46,19 @@ def _feature_flag(name: str, default: bool = True) -> bool:
 
 # 特征选择时排除的列(非特征列 + 结果/比分列,防止数据泄漏)
 EXCLUDE_COLUMNS = {
-    "date", "league", "season", "stage", "round", "id",
-    "home_team", "away_team", "score", "result",
-    "goals", "home_goals", "away_goals",
+    "date",
+    "league",
+    "season",
+    "stage",
+    "round",
+    "id",
+    "home_team",
+    "away_team",
+    "score",
+    "result",
+    "goals",
+    "home_goals",
+    "away_goals",
 }
 
 
@@ -81,8 +95,9 @@ class BaseFootballModel(ABC):
             return df.sort_values("date", kind="mergesort").reset_index(drop=True)
         return data
 
-
-    def _select_feature_columns(self, df: pd.DataFrame, target_column: str) -> list[str]:
+    def _select_feature_columns(
+        self, df: pd.DataFrame, target_column: str
+    ) -> list[str]:
         """数值列白名单特征选择,排除目标列与 ID/文本/比分列,防泄漏。
 
         全空列自动剔除:摄入层预留的指标列(如 xg/corners)在无数据时保持 NULL,
@@ -93,16 +108,19 @@ class BaseFootballModel(ABC):
         def _is_raw_side_col(c: str) -> bool:
             # 当场统计源列(home_xg/away_shots...)赛后可知,必须排除;
             # 滚动特征列是 home_team_*/away_team_* 形式,不受影响
-            return (c.startswith("home_") or c.startswith("away_")) \
-                and not (c.startswith("home_team_") or c.startswith("away_team_"))
+            return (c.startswith(("home_", "away_"))) and not (
+                c.startswith(("home_team_", "away_team_"))
+            )
 
         return [
-            c for c in df.columns
+            c
+            for c in df.columns
             if c not in exclude
             and not _is_raw_side_col(c)
             and pd.api.types.is_numeric_dtype(df[c])
             and df[c].notna().any()
-            and df[c].nunique(dropna=True) > 1  # 剔除常量列(无信息量,且 sklearn 分箱器对常量列报错)
+            and df[c].nunique(dropna=True)
+            > 1  # 剔除常量列(无信息量,且 sklearn 分箱器对常量列报错)
         ]
 
     # ------------------------------------------------------------------
@@ -112,6 +130,7 @@ class BaseFootballModel(ABC):
     def train(self, data: pd.DataFrame, target_column: str = "goals") -> dict[str, Any]:
         """训练模型(内部强制按 date 排序,时间 holdout 评估,保存特征白名单)"""
         from app.models.poisson.hgbr_model import PoissonLossHGBR
+
         logger = self._logger()
 
         logger.info(f"开始训练 {self.config.league_type.value} 模型...")
@@ -129,7 +148,9 @@ class BaseFootballModel(ABC):
             raise ValueError("没有可用的数值特征列,请检查输入数据")
 
         # 检查数据质量
-        self._validate_data_quality(prepared_data[feature_columns], prepared_data[target_column])
+        self._validate_data_quality(
+            prepared_data[feature_columns], prepared_data[target_column]
+        )
 
         # 初始化模型
         self.model = PoissonLossHGBR(**self.config.parameters)
@@ -137,6 +158,7 @@ class BaseFootballModel(ABC):
         # 时间序列 holdout:前 80% 训练,后 20% 评估(防止样本内评估虚高)
         # 审查 P1-7:按日期分组切分 —— 同一比赛日不会同时出现在 train/test
         from app.models.utils import date_group_split
+
         _trn, _eva = date_group_split(prepared_data, ratio=0.8)
         X_train = _trn[feature_columns]
         y_train = _trn[target_column]
@@ -147,9 +169,12 @@ class BaseFootballModel(ABC):
             X_eval, y_eval = X_train, y_train  # 数据太少时退回样本内评估
 
         # 训练子集问题列剔除:常量列 + 非空率过低的列(sklearn 分箱器对高缺失列有 bug)
-        keep_cols = [col for col in feature_columns
-                     if X_train[col].notna().mean() > 0.2
-                     and X_train[col].nunique(dropna=True) > 1]
+        keep_cols = [
+            col
+            for col in feature_columns
+            if X_train[col].notna().mean() > 0.2
+            and X_train[col].nunique(dropna=True) > 1
+        ]
         X_train = X_train[keep_cols]
         X_eval = X_eval[keep_cols]
         feature_columns = keep_cols
@@ -170,16 +195,21 @@ class BaseFootballModel(ABC):
         # 审查 P0-2:评估完成后用 100% 数据重训 —— 保存/上线的即生产模型,
         # 而非只吃过前 80% 历史的模型。
         full_weight = self._sample_weights(prepared_data)
-        self.model.fit(prepared_data[feature_columns], prepared_data[target_column],
-                       sample_weight=full_weight)
+        self.model.fit(
+            prepared_data[feature_columns],
+            prepared_data[target_column],
+            sample_weight=full_weight,
+        )
 
         # 记录训练历史
-        self.training_history.append({
-            "timestamp": pd.Timestamp.now(),
-            "data_shape": prepared_data.shape,
-            "feature_count": len(feature_columns),
-            "evaluation_metrics": evaluation
-        })
+        self.training_history.append(
+            {
+                "timestamp": pd.Timestamp.now(),
+                "data_shape": prepared_data.shape,
+                "feature_count": len(feature_columns),
+                "evaluation_metrics": evaluation,
+            }
+        )
 
         self.is_trained = True
 
@@ -190,9 +220,11 @@ class BaseFootballModel(ABC):
             "league_type": self.config.league_type.value,
             "version": self.config.version,
             "training_metrics": evaluation,
-            "feature_importance": self.model.feature_importance_.to_dict() if self.model.feature_importance_ is not None else {},
+            "feature_importance": self.model.feature_importance_.to_dict()
+            if self.model.feature_importance_ is not None
+            else {},
             "training_data_shape": prepared_data.shape,
-            "feature_count": len(feature_columns)
+            "feature_count": len(feature_columns),
         }
 
     def predict(self, data: pd.DataFrame) -> dict[str, Any]:
@@ -208,7 +240,9 @@ class BaseFootballModel(ABC):
 
         # 特征白名单:优先用训练时保存的列;训练列缺失时回退到白名单推断
         if self.feature_columns_:
-            feature_columns = [c for c in self.feature_columns_ if c in prepared_data.columns]
+            feature_columns = [
+                c for c in self.feature_columns_ if c in prepared_data.columns
+            ]
         else:
             feature_columns = self._select_feature_columns(prepared_data, "goals")
 
@@ -225,7 +259,7 @@ class BaseFootballModel(ABC):
             "std_goals": np.std(predictions),
             "min_goals": np.min(predictions),
             "max_goals": np.max(predictions),
-            "median_goals": np.median(predictions)
+            "median_goals": np.median(predictions),
         }
 
         return {
@@ -233,7 +267,7 @@ class BaseFootballModel(ABC):
             "probabilities": probabilities,
             "prediction_stats": pred_stats,
             "prepared_data_shape": prepared_data.shape,
-            "feature_columns": feature_columns
+            "feature_columns": feature_columns,
         }
 
     def _sample_weights(self, data: pd.DataFrame) -> np.ndarray | None:
@@ -245,18 +279,27 @@ class BaseFootballModel(ABC):
             import os as _os
 
             import yaml as _yaml
-            _root = _os.path.dirname(_os.path.dirname(_os.path.dirname(
-                _os.path.dirname(_os.path.abspath(__file__)))))
+
+            _root = _os.path.dirname(
+                _os.path.dirname(
+                    _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+                )
+            )
             _cfg_path = _os.path.join(_root, "configs", "models.yaml")
             _sw = {}
             if _os.path.exists(_cfg_path):
                 with open(_cfg_path, encoding="utf-8") as _f:
-                    _sw = (_yaml.safe_load(_f) or {}).get("training", {}).get("sample_weight", {})
+                    _sw = (
+                        (_yaml.safe_load(_f) or {})
+                        .get("training", {})
+                        .get("sample_weight", {})
+                    )
             if not _sw.get("enabled", False):
                 return None
             if "date" not in data.columns or data["date"].isna().all():
                 return None
             from app.models.utils import compute_time_decay_weights
+
             dates = pd.to_datetime(data["date"], errors="coerce")
             valid = dates.notna()
             w = np.full(len(dates), 1.0)
@@ -275,7 +318,9 @@ class BaseFootballModel(ABC):
     def _validate_data_quality(self, X: pd.DataFrame, y: pd.Series) -> None:
         """数据质量检查:样本量、缺失值比例、目标分布"""
         if len(X) < self.min_training_rows:
-            raise ValueError(f"数据量不足,需要至少{self.min_training_rows}条记录,当前只有{len(X)}条")
+            raise ValueError(
+                f"数据量不足,需要至少{self.min_training_rows}条记录,当前只有{len(X)}条"
+            )
 
         if len(X.columns) > 0:
             missing_ratio = X.isnull().sum().sum() / (len(X) * len(X.columns))
@@ -287,7 +332,9 @@ class BaseFootballModel(ABC):
         if y.nunique() < 3:
             self._logger().warning("目标变量分布过于简单,可能影响模型性能")
 
-        self._logger().info(f"数据质量检查通过,样本数: {len(X)}, 缺失值比例: {missing_ratio:.2%}")
+        self._logger().info(
+            f"数据质量检查通过,样本数: {len(X)}, 缺失值比例: {missing_ratio:.2%}"
+        )
 
     def save_model(self, filepath: str, extra: dict[str, Any] | None = None) -> None:
         """保存模型与配置(含训练特征白名单;extra 供子类附加字段)"""
@@ -313,7 +360,9 @@ class BaseFootballModel(ABC):
         joblib.dump(save_data, filepath)
         self._logger().info(f"模型已保存到: {filepath}")
 
-    def load_model(self, filepath: str, league_type: LeagueType | None = None) -> dict[str, Any]:
+    def load_model(
+        self, filepath: str, league_type: LeagueType | None = None
+    ) -> dict[str, Any]:
         """加载模型,返回原始 save_data 字典(供子类附加恢复)"""
         if not os.path.exists(filepath):
             raise FileNotFoundError(f"模型文件不存在: {filepath}")
@@ -337,4 +386,5 @@ class BaseFootballModel(ABC):
 
     def _logger(self):
         import logging
+
         return logging.getLogger(__name__)

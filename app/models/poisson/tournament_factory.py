@@ -5,7 +5,6 @@
 ModelConfig(参数),不再需要逐字相同的子类。
 """
 
-
 import pandas as pd
 
 from app.core.config import LeagueType, ModelConfig, MultiLeagueConfig
@@ -28,14 +27,19 @@ class TournamentModel(BaseFootballModel):
             "round_of_16": 1,
             "quarter_final": 2,
             "semi_final": 3,
-            "final": 4
+            "final": 4,
         }
 
     def prepare_features(self, data: pd.DataFrame) -> pd.DataFrame:
         """核心滚动统计 + 赛事阶段编码"""
         from app.features.factory import compute_all
-        prepared = compute_all(data, league_type=self.config.league_type.value, metric_columns=tuple(self.metric_columns),
-                               side_metric_columns=tuple(self.side_metric_columns))
+
+        prepared = compute_all(
+            data,
+            league_type=self.config.league_type.value,
+            metric_columns=tuple(self.metric_columns),
+            side_metric_columns=tuple(self.side_metric_columns),
+        )
         prepared["tournament_stage"] = self._encode_tournament_stage(data)
         return prepared
 
@@ -46,12 +50,16 @@ class TournamentModel(BaseFootballModel):
         if isinstance(data, pd.Series):
             return data.map(self.tournament_stage_mapping).fillna(0).astype(int)
         if "stage" in data.columns:
-            return data["stage"].map(self.tournament_stage_mapping).fillna(0).astype(int)
+            return (
+                data["stage"].map(self.tournament_stage_mapping).fillna(0).astype(int)
+            )
         return pd.Series(0, index=data.index)
 
     def save_model(self, filepath: str) -> None:
         """保存模型,附加赛事阶段映射"""
-        super().save_model(filepath, extra={"tournament_stage_mapping": self.tournament_stage_mapping})
+        super().save_model(
+            filepath, extra={"tournament_stage_mapping": self.tournament_stage_mapping}
+        )
 
     def load_model(self, filepath: str, league_type: LeagueType | None = None) -> None:
         """加载模型,恢复赛事阶段映射"""
@@ -66,7 +74,9 @@ class TournamentModelFactory:
     """
 
     @staticmethod
-    def create_tournament_model(league_type: LeagueType, config: ModelConfig | None = None) -> TournamentModel:
+    def create_tournament_model(
+        league_type: LeagueType, config: ModelConfig | None = None
+    ) -> TournamentModel:
         """
         创建赛事模型
 
@@ -82,4 +92,3 @@ class TournamentModelFactory:
             config = multi_config.get_model_config(league_type)
 
         return TournamentModel(config)
-

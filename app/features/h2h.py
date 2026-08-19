@@ -1,4 +1,5 @@
 """06 Opponent Interaction(审查 §14 拆分):H2H 交手胜率(已降权,可选关闭)。"""
+
 from __future__ import annotations
 
 import hashlib
@@ -9,7 +10,15 @@ import pandas as pd
 
 FAMILY = "06_opponent_interaction"
 DESCRIPTION = "Opponent Interaction(H2H,已降权)"
-FEATURES: list[dict] = [{"name": "home_team_h2h_win_rate", "window": "all", "agg": "mean", "source": "matches.same_pair", "policy": "exclude_current_expanding_shift1"}]
+FEATURES: list[dict] = [
+    {
+        "name": "home_team_h2h_win_rate",
+        "window": "all",
+        "agg": "mean",
+        "source": "matches.same_pair",
+        "policy": "exclude_current_expanding_shift1",
+    }
+]
 
 
 def _feature_flag(name: str, default: bool = True) -> bool:
@@ -18,8 +27,12 @@ def _feature_flag(name: str, default: bool = True) -> bool:
         import os as _os
 
         import yaml as _yaml
-        _root = _os.path.dirname(_os.path.dirname(_os.path.dirname(
-            _os.path.dirname(_os.path.abspath(__file__)))))
+
+        _root = _os.path.dirname(
+            _os.path.dirname(
+                _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+            )
+        )
         _path = _os.path.join(_root, "configs", "models.yaml")
         if _os.path.exists(_path):
             with open(_path, encoding="utf-8") as _f:
@@ -45,16 +58,28 @@ def compute_h2h(data: pd.DataFrame) -> pd.DataFrame:
         pair["date"] = df["date"].values
 
     pair["h2h_home_win_rate"] = np.where(
-        pair["home_goals"].isna(), np.nan,
-        (pair["home_goals"] > pair["away_goals"]).astype(float))
-    pair = pair.sort_values(["pair", "date", "index"], kind="mergesort") \
-        if "date" in pair.columns else pair.sort_values(["pair", "index"], kind="mergesort")
-    pair["cum"] = pair.groupby("pair")["h2h_home_win_rate"].expanding().mean().reset_index(drop=True)
+        pair["home_goals"].isna(),
+        np.nan,
+        (pair["home_goals"] > pair["away_goals"]).astype(float),
+    )
+    pair = (
+        pair.sort_values(["pair", "date", "index"], kind="mergesort")
+        if "date" in pair.columns
+        else pair.sort_values(["pair", "index"], kind="mergesort")
+    )
+    pair["cum"] = (
+        pair.groupby("pair")["h2h_home_win_rate"]
+        .expanding()
+        .mean()
+        .reset_index(drop=True)
+    )
     pair["prior"] = pair.groupby("pair")["cum"].shift(1)
     pair = pair.set_index("index")
 
     prepared = prepared.reset_index(drop=True)
-    prepared["home_team_h2h_win_rate"] = pair["prior"].reindex(range(len(prepared))).values
+    prepared["home_team_h2h_win_rate"] = (
+        pair["prior"].reindex(range(len(prepared))).values
+    )
     return prepared
 
 
@@ -66,7 +91,9 @@ def compute(df: pd.DataFrame, league_type: str | None = None) -> pd.DataFrame:
 def version() -> str:
     """公式哈希(审查 §16):规格 JSON + 实现代码哈希。"""
     import inspect
-    spec = json.dumps(sorted(FEATURES, key=lambda f: f["name"]),
-                      ensure_ascii=False, sort_keys=True)
+
+    spec = json.dumps(
+        sorted(FEATURES, key=lambda f: f["name"]), ensure_ascii=False, sort_keys=True
+    )
     impl = inspect.getsource(compute_h2h)
     return hashlib.sha256((spec + "|" + impl).encode()).hexdigest()[:12]

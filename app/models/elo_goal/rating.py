@@ -11,6 +11,7 @@
         elo.update(home, away, gh, ga, home_adv=0 if is_national else 70)
     elo.rating("Manchester City FC")  # → float
 """
+
 from __future__ import annotations
 
 from collections import defaultdict
@@ -19,11 +20,18 @@ from collections import defaultdict
 class EloSystem:
     """足球 ELO 系统:按时间顺序逐场更新,天然防泄漏(赛前 rating = 当前状态)。"""
 
-    def __init__(self, initial: float = 1500.0, k: float = 20.0,
-                 home_advantage: float = 70.0, national_k: float = 30.0,
-                 dyn_k: bool = True, k_max_ratio: float = 2.0, k_tau: float = 50.0):
+    def __init__(
+        self,
+        initial: float = 1500.0,
+        k: float = 20.0,
+        home_advantage: float = 70.0,
+        national_k: float = 30.0,
+        dyn_k: bool = True,
+        k_max_ratio: float = 2.0,
+        k_tau: float = 50.0,
+    ):
         self.initial = initial
-        self.k = k                    # 俱乐部 K 因子
+        self.k = k  # 俱乐部 K 因子
         self.national_k = national_k  # 国家队 K 因子(比赛少,收敛快)
         self.home_advantage = home_advantage
         # 审查七 V7-2:Dynamic K —— 新球队(出场少)K 高快速收敛,
@@ -59,9 +67,16 @@ class EloSystem:
             return 1.5
         return (11.0 + a) / 8.0
 
-    def update(self, home: str, away: str, home_goals: int, away_goals: int,
-               home_adv: float = 70.0, is_national: bool = False,
-               mode: str = "overall") -> tuple[float, float]:
+    def update(
+        self,
+        home: str,
+        away: str,
+        home_goals: int,
+        away_goals: int,
+        home_adv: float = 70.0,
+        is_national: bool = False,
+        mode: str = "overall",
+    ) -> tuple[float, float]:
         """按赛果更新两队 rating;返回 (主队新 rating, 客队新 rating)。
 
         模式(V2 多维 ELO,每个维度独立实例互不污染):
@@ -76,7 +91,11 @@ class EloSystem:
         if mode == "overall":
             e_home = self.expected(home, away, home_adv)
             e_away = 1.0 - e_home
-            s_home = 1.0 if home_goals > away_goals else (0.5 if home_goals == away_goals else 0.0)
+            s_home = (
+                1.0
+                if home_goals > away_goals
+                else (0.5 if home_goals == away_goals else 0.0)
+            )
             g = self.goal_weight(home_goals - away_goals)
             self._ratings[home] += k_home * g * (s_home - e_home)
             self._ratings[away] += k_away * g * ((1.0 - s_home) - e_away)
@@ -114,7 +133,9 @@ if __name__ == "__main__":
     # 平局小幅变化
     elo.update("Strong FC", "Weak FC", 1, 1)
     print("✅ EloSystem 自测通过")
-    print(f"  Strong: {elo.rating('Strong FC'):.1f} | Weak: {elo.rating('Weak FC'):.1f}")
+    print(
+        f"  Strong: {elo.rating('Strong FC'):.1f} | Weak: {elo.rating('Weak FC'):.1f}"
+    )
 
 
 def with_elo_features(df, is_national: bool = False, dyn_k: bool | None = None):
@@ -132,7 +153,10 @@ def with_elo_features(df, is_national: bool = False, dyn_k: bool | None = None):
     if dyn_k is None:
         try:
             from app.core.config import load_yaml
-            dyn_k = bool((load_yaml("models.yaml").get("elo_goal") or {}).get("dyn_k", True))
+
+            dyn_k = bool(
+                (load_yaml("models.yaml").get("elo_goal") or {}).get("dyn_k", True)
+            )
         except Exception:
             dyn_k = True
     overall = EloSystem(dyn_k=dyn_k)
@@ -147,9 +171,12 @@ def with_elo_features(df, is_national: bool = False, dyn_k: bool | None = None):
     gas = df["away_goals"].to_numpy() if "away_goals" in df.columns else None
     dates = df["date"].to_numpy()
     n = len(df)
-    home_elo = np.empty(n); away_elo = np.empty(n)
-    home_att = np.empty(n); away_att = np.empty(n)
-    home_def = np.empty(n); away_def = np.empty(n)
+    home_elo = np.empty(n)
+    away_elo = np.empty(n)
+    home_att = np.empty(n)
+    away_att = np.empty(n)
+    home_def = np.empty(n)
+    away_def = np.empty(n)
     is_nan = (ghs is None) or (gas is None)
     # 审查 P1-6:ELO 同日时间穿越 —— DB date 无时间戳,同日比赛并列排序。
     # 修复:按"日初快照"计算同一天全部比赛的特征(同场同时开赛,互不影响),
@@ -165,17 +192,43 @@ def with_elo_features(df, is_national: bool = False, dyn_k: bool | None = None):
         init_o, init_a, init_d = overall.initial, attack.initial, defense.initial
         for k in range(i, j):
             h, a = homes[k], aways[k]
-            home_elo[k] = o_snap.get(h, init_o); away_elo[k] = o_snap.get(a, init_o)
-            home_att[k] = a_snap.get(h, init_a); away_att[k] = a_snap.get(a, init_a)
-            home_def[k] = d_snap.get(h, init_d); away_def[k] = d_snap.get(a, init_d)
+            home_elo[k] = o_snap.get(h, init_o)
+            away_elo[k] = o_snap.get(a, init_o)
+            home_att[k] = a_snap.get(h, init_a)
+            away_att[k] = a_snap.get(a, init_a)
+            home_def[k] = d_snap.get(h, init_d)
+            away_def[k] = d_snap.get(a, init_d)
         for k in range(i, j):
             gh, ga = (ghs[k], gas[k]) if not is_nan else (np.nan, np.nan)
-            if gh is not None and ga is not None and gh == gh and ga == ga:  # 非 None 非 NaN
+            if (
+                gh is not None
+                and ga is not None
+                and np.isfinite(gh)
+                and np.isfinite(ga)
+            ):  # 非 None 非 NaN
                 h, a = homes[k], aways[k]
                 ha = 0.0 if is_national else overall.home_advantage
-                overall.update(h, a, int(gh), int(ga), home_adv=ha, is_national=is_national)
-                attack.update(h, a, int(gh), int(ga), home_adv=ha, is_national=is_national, mode="attack")
-                defense.update(h, a, int(gh), int(ga), home_adv=ha, is_national=is_national, mode="defense")
+                overall.update(
+                    h, a, int(gh), int(ga), home_adv=ha, is_national=is_national
+                )
+                attack.update(
+                    h,
+                    a,
+                    int(gh),
+                    int(ga),
+                    home_adv=ha,
+                    is_national=is_national,
+                    mode="attack",
+                )
+                defense.update(
+                    h,
+                    a,
+                    int(gh),
+                    int(ga),
+                    home_adv=ha,
+                    is_national=is_national,
+                    mode="defense",
+                )
         i = j
     df["home_elo"] = home_elo
     df["away_elo"] = away_elo
@@ -187,4 +240,3 @@ def with_elo_features(df, is_national: bool = False, dyn_k: bool | None = None):
     df["attack_elo_diff"] = df["home_attack_elo"] - df["away_attack_elo"]
     df["defense_elo_diff"] = df["home_defense_elo"] - df["away_defense_elo"]
     return df
-

@@ -4,7 +4,6 @@
 这里只保留联赛差异:各联赛的额外统计特征列。
 """
 
-
 import pandas as pd
 
 from app.core.config import LeagueType, ModelConfig, MultiLeagueConfig
@@ -24,18 +23,28 @@ class LeagueModel(BaseFootballModel):
     min_training_rows = 100
 
     # 要引用的统一指标列(单列机制,数据中不存在时自动跳过;当前数据为主客分列,见 side_metric_columns)
-    metric_columns: list[str] = []
+    metric_columns: list[str] | None = None
 
     # 主客分列指标(home_xg/away_xg 形式)滚动特征:数据存在即启用
     # possession 已预留:api-football 付费套餐或未来数据源提供控球率后自动生效
-    side_metric_columns: list[str] = ["xg", "shots", "shots_on_target", "corners", "possession"]
+    side_metric_columns: tuple[str, ...] = (
+        "xg",
+        "shots",
+        "shots_on_target",
+        "corners",
+        "possession",
+    )
 
     def prepare_league_specific_features(self, data: pd.DataFrame) -> pd.DataFrame:
         """统一走 Feature Factory(审查 §18:ELO 注入亦在 Factory 内)。"""
         from app.features.factory import compute_all
-        return compute_all(data, league_type=self.config.league_type.value,
-                           metric_columns=tuple(self.metric_columns),
-                           side_metric_columns=tuple(self.side_metric_columns))
+
+        return compute_all(
+            data,
+            league_type=self.config.league_type.value,
+            metric_columns=tuple(self.metric_columns or []),
+            side_metric_columns=tuple(self.side_metric_columns or []),
+        )
 
     def prepare_features(self, data: pd.DataFrame) -> pd.DataFrame:
         """基类入口:转发到联赛特定特征准备"""
@@ -46,25 +55,20 @@ class PremierLeagueModel(LeagueModel):
     """英超联赛模型:引用 角球/射正"""
 
 
-
 class LaLigaModel(LeagueModel):
     """西甲联赛模型:引用 传球成功率/进攻链"""
-
 
 
 class BundesligaModel(LeagueModel):
     """德甲联赛模型:引用 效率/转换速度"""
 
 
-
 class Ligue1Model(LeagueModel):
     """法甲联赛模型:引用 防守动作/反击"""
 
 
-
 class SerieAModel(LeagueModel):
     """意甲联赛模型:引用 战术评分/经验(数据源有则填,无则跳过)"""
-
 
 
 class GenericLeagueModel(LeagueModel):
@@ -74,17 +78,19 @@ class GenericLeagueModel(LeagueModel):
     """
 
 
-
 # 全球分层第一层:合并全部联赛训练,league_code 编码捕获联赛水平差异。
 # 用途:①无联赛历史球队的兜底(该队在其他联赛有记录);
 #      ②跨联赛可比特征(全局 ELO)的自然载体。
 _LEAGUE_CODE = {
-    "premier_league": 1, "la_liga": 2, "bundesliga": 3,
-    "serie_a": 4, "ligue_1": 5, "champions_league": 6,
-    "world_cup": 7, "european_championship": 8,
+    "premier_league": 1,
+    "la_liga": 2,
+    "bundesliga": 3,
+    "serie_a": 4,
+    "ligue_1": 5,
+    "champions_league": 6,
+    "world_cup": 7,
+    "european_championship": 8,
 }
-
-
 
 
 class LeagueModelFactory:
@@ -93,7 +99,9 @@ class LeagueModelFactory:
     """
 
     @staticmethod
-    def create_league_model(league_type: LeagueType, config: ModelConfig | None = None) -> LeagueModel:
+    def create_league_model(
+        league_type: LeagueType, config: ModelConfig | None = None
+    ) -> LeagueModel:
         """
         创建联赛模型
 
@@ -122,4 +130,3 @@ class LeagueModelFactory:
         else:
             # 其他联赛使用通用模型(不再实例化抽象类)
             return GenericLeagueModel(config)
-

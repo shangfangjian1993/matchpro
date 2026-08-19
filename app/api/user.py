@@ -1,4 +1,5 @@
 """V2 用户端点:设置 / 改密 / API 设置 / 通知(新设计)"""
+
 import json
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -65,9 +66,12 @@ def get_api_settings(user=Depends(get_current_user)):
     api = _load_settings(s).get("api_settings", {})
     key = str(api.get("apiKey", ""))
     masked = (key[:4] + "****" + key[-4:]) if len(key) > 8 else ("****" if key else "")
-    return {"enabled": bool(api.get("enabled", False)),
-            "rateLimit": int(api.get("rateLimit", 1000)),
-            "apiKey": masked, "hasApiKey": bool(key)}
+    return {
+        "enabled": bool(api.get("enabled", False)),
+        "rateLimit": int(api.get("rateLimit", 1000)),
+        "apiKey": masked,
+        "hasApiKey": bool(key),
+    }
 
 
 @router.put("/api-settings")
@@ -89,10 +93,15 @@ def update_api_settings(body: ApiSettingsUpdate, user=Depends(get_current_user))
 
 # ---------------- 通知 ----------------
 
+
 @router.get("/notifications")
 def list_notifications(user=Depends(get_current_user)):
-    items = (Notification.query.filter_by(user_id=user.id)
-             .order_by(Notification.created_at.desc()).limit(50).all())
+    items = (
+        Notification.query.filter_by(user_id=user.id)
+        .order_by(Notification.created_at.desc())
+        .limit(50)
+        .all()
+    )
     return {"items": [n.to_dict() for n in items], "total": len(items)}
 
 

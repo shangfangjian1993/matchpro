@@ -18,23 +18,34 @@ logger = logging.getLogger(__name__)
 
 # 可更新的指标字段(与 NormalizedMatch 对应)
 _UPDATE_FIELDS = (
-    "home_goals", "away_goals", "home_xg", "away_xg",
-    "home_shots", "away_shots", "home_shots_on_target", "away_shots_on_target",
-    "home_corners", "away_corners", "home_possession",
-    "home_yellow_cards", "away_yellow_cards",
-    "home_red_cards", "away_red_cards",
-    "home_ht_goals", "away_ht_goals",
-    "home_passing_accuracy", "away_passing_accuracy",
+    "home_goals",
+    "away_goals",
+    "home_xg",
+    "away_xg",
+    "home_shots",
+    "away_shots",
+    "home_shots_on_target",
+    "away_shots_on_target",
+    "home_corners",
+    "away_corners",
+    "home_possession",
+    "home_yellow_cards",
+    "away_yellow_cards",
+    "home_red_cards",
+    "away_red_cards",
+    "home_ht_goals",
+    "away_ht_goals",
+    "home_passing_accuracy",
+    "away_passing_accuracy",
     "match_stage",
 )
-
-
 
 
 def _get_or_create_team(db, name: str, team_type: str = "club") -> int:
     """按规范队名查/建球队实体;返回 team.id(新队自动建档,含中文名)。"""
     from app.api.db import Team
     from app.data.canonical.team_names_zh import to_zh
+
     team = db.session.query(Team).filter_by(name=name).first()
     if team is None:
         team = Team(name=name, name_zh=to_zh(name), team_type=team_type)
@@ -52,23 +63,33 @@ def _season_label(dt) -> str:
 def _upsert_team_season(db, team_id: int, league_id: int, season: str) -> None:
     """维护球队×联赛×赛季归属(幂等)。"""
     from app.api.db import TeamSeason
-    exists = db.session.query(TeamSeason).filter_by(
-        team_id=team_id, league_id=league_id, season=season).first()
+
+    exists = (
+        db.session.query(TeamSeason)
+        .filter_by(team_id=team_id, league_id=league_id, season=season)
+        .first()
+    )
     if exists is None:
         db.session.add(TeamSeason(team_id=team_id, league_id=league_id, season=season))
 
 
-
-
 # matches 胖表拆分:比赛指标 → team_match_stats(每队每场一行)
 _TMS_FIELDS = {
-    "xg": "xg", "shots": "shots", "shots_on_target": "shots_on_target",
-    "corners": "corners", "possession": "possession",
-    "yellow_cards": "yellow_cards", "red_cards": "red_cards",
-    "ht_goals": "ht_goals", "passing_accuracy": "passing_accuracy",
-    "xg_chain": "xg_chain", "efficiency": "efficiency",
-    "transition_speed": "transition_speed", "defensive_actions": "defensive_actions",
-    "counter_attacks": "counter_attacks", "tactical_rating": "tactical_rating",
+    "xg": "xg",
+    "shots": "shots",
+    "shots_on_target": "shots_on_target",
+    "corners": "corners",
+    "possession": "possession",
+    "yellow_cards": "yellow_cards",
+    "red_cards": "red_cards",
+    "ht_goals": "ht_goals",
+    "passing_accuracy": "passing_accuracy",
+    "xg_chain": "xg_chain",
+    "efficiency": "efficiency",
+    "transition_speed": "transition_speed",
+    "defensive_actions": "defensive_actions",
+    "counter_attacks": "counter_attacks",
+    "tactical_rating": "tactical_rating",
     "experience": "experience",
 }
 
@@ -76,10 +97,16 @@ _TMS_FIELDS = {
 def _write_team_stats(db, match) -> None:
     """把 match 的指标双写进 team_match_stats(幂等:存在则更新)。"""
     from app.api.db import TeamMatchStats
-    for side, prefix, team_id in (("home", "home_", match.home_team_id),
-                                  ("away", "away_", match.away_team_id)):
-        row = db.session.query(TeamMatchStats).filter_by(
-            match_id=match.id, side=side).first()
+
+    for side, prefix, team_id in (
+        ("home", "home_", match.home_team_id),
+        ("away", "away_", match.away_team_id),
+    ):
+        row = (
+            db.session.query(TeamMatchStats)
+            .filter_by(match_id=match.id, side=side)
+            .first()
+        )
         data = {"match_id": match.id, "team_id": team_id, "side": side}
         for src, dst in _TMS_FIELDS.items():
             data[dst] = getattr(match, prefix + src, None)
@@ -105,18 +132,20 @@ def upsert_matches(matches: list[NormalizedMatch]) -> dict:
     _, db = _app_ctx()
     result = {"inserted": 0, "updated": 0, "skipped": 0, "errors": []}
     from app.api.db import session_scope
+
     with session_scope():
         for league_type, group in by_league.items():
-            league = _get_or_create_league(db, League, league_type,
-                                           season_label=group[0].season_label)
+            league = _get_or_create_league(
+                db, League, league_type, season_label=group[0].season_label
+            )
             # 已存在索引:(home, away) → [(date, Match)];匹配允许 ±1 天容差
             # (不同源日期时区偏差:understat 用 UTC,fdco 用英国日期,个别场次差 1 天)
             existing: dict[tuple, list] = {}
             for m in Match.query.filter_by(league_id=league.id).all():
                 existing.setdefault((m.home_team, m.away_team), []).append(m)
 
-            def _find_old(nm) -> object | None:
-                cands = existing.get((nm.home_team, nm.away_team))
+            def _find_old(nm, _existing=existing) -> object | None:
+                cands = _existing.get((nm.home_team, nm.away_team))
                 if not cands:
                     return None
                 target = nm.date.date()
@@ -130,8 +159,13 @@ def upsert_matches(matches: list[NormalizedMatch]) -> dict:
             for nm in group:
                 errs = validate(nm)
                 if errs:
-                    result["errors"].append({"team": f"{nm.home_team} vs {nm.away_team}",
-                                             "date": str(nm.date), "error": errs[0]})
+                    result["errors"].append(
+                        {
+                            "team": f"{nm.home_team} vs {nm.away_team}",
+                            "date": str(nm.date),
+                            "error": errs[0],
+                        }
+                    )
                     continue
                 # 球队实体自动建档(新队名 → teams 表)+ 外键解析;
                 # 国家队赛事(世界杯/欧洲杯)球队标注 team_type=national
@@ -142,10 +176,15 @@ def upsert_matches(matches: list[NormalizedMatch]) -> dict:
                 season = _season_label(nm.date)
                 old = _find_old(nm)
                 if old is None:
-                    m = Match(league_id=league.id, home_team=nm.home_team,
-                              away_team=nm.away_team, match_date=nm.date,
-                              match_status=nm.match_status,
-                              home_team_id=nm.home_team_id, away_team_id=nm.away_team_id)
+                    m = Match(
+                        league_id=league.id,
+                        home_team=nm.home_team,
+                        away_team=nm.away_team,
+                        match_date=nm.date,
+                        match_status=nm.match_status,
+                        home_team_id=nm.home_team_id,
+                        away_team_id=nm.away_team_id,
+                    )
                     _apply_fields(m, nm)
                     db.session.add(m)
                     result["inserted"] += 1
@@ -167,15 +206,16 @@ def upsert_matches(matches: list[NormalizedMatch]) -> dict:
                     _upsert_team_season(db, nm.away_team_id, league.id, season)
                     # 状态变化:升级到 finished 时强制覆盖比分(旧 scheduled 的 0 是占位值,
                     # merge_only 无法区分占位 0 与真实 0:0)
-                    if old.match_status != nm.match_status:
+                    if old.match_status != nm.match_status and (
+                        nm.match_status == "finished" or old.match_status != "finished"
+                    ):
                         # 状态只允许单向升级(scheduled/postponed → finished);
                         # 防止已完赛行被 scheduled/postponed 覆盖成脏行(状态与比分矛盾)
-                        if nm.match_status == "finished" or old.match_status != "finished":
-                            old.match_status = nm.match_status
-                            changed = True
-                            if nm.match_status == "finished" and nm.home_goals is not None:
-                                old.home_goals = nm.home_goals
-                                old.away_goals = nm.away_goals
+                        old.match_status = nm.match_status
+                        changed = True
+                        if nm.match_status == "finished" and nm.home_goals is not None:
+                            old.home_goals = nm.home_goals
+                            old.away_goals = nm.away_goals
                     # 指标字段只补空(不覆盖已存在的真实值)
                     changed = _apply_fields(old, nm, merge_only=True) or changed
                     _write_team_stats(db, old)

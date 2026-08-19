@@ -1,4 +1,5 @@
 """源公共 HTTP:gzip 感知的下载 + JSON 请求(源适配器共用)。"""
+
 import gzip
 import json
 import os
@@ -35,11 +36,13 @@ class JsonCache:
 
     def _path(self, key: str) -> str:
         import re
+
         safe = re.sub(r"[^A-Za-z0-9_.-]", "_", key)
         return os.path.join(self.cache_dir, f"{safe}.json")
 
     def get(self, key: str, max_age_hours: float):
         import time
+
         path = self._path(key)
         if not os.path.exists(path):
             return None

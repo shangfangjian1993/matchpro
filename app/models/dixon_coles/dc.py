@@ -1,4 +1,5 @@
 """Dixon-Coles 模型(§1.1 app/models/dixon_coles):低比分相关性 τ 修正。"""
+
 from __future__ import annotations
 
 import math
@@ -21,7 +22,9 @@ def _dc_tau(x: int, y: int, lam: float, mu: float, tau: float) -> float:
     return 1.0
 
 
-def dc_probs(lam_home: float, lam_away: float, tau: float = 0.0) -> tuple[float, float, float]:
+def dc_probs(
+    lam_home: float, lam_away: float, tau: float = 0.0
+) -> tuple[float, float, float]:
     """DC 修正联合分布 → 胜平负。τ=0 退化为普通泊松。"""
     m = np.zeros((10, 10))
     ph = [_pois_pmf(lam_home, i) for i in range(10)]
@@ -49,8 +52,11 @@ def fit_dc_tau(samples: list[dict]) -> float:
             x, y = s["home_goals"], s["away_goals"]
             if x > 1 or y > 1:
                 continue
-            p = _dc_tau(x, y, s["hgbr_lam_h"], s["hgbr_lam_a"], t) * \
-                _pois_pmf(s["hgbr_lam_h"], x) * _pois_pmf(s["hgbr_lam_a"], y)
+            p = (
+                _dc_tau(x, y, s["hgbr_lam_h"], s["hgbr_lam_a"], t)
+                * _pois_pmf(s["hgbr_lam_h"], x)
+                * _pois_pmf(s["hgbr_lam_a"], y)
+            )
             ll += math.log(max(1e-12, p))
         if ll < best_ll:
             best_t, best_ll = t, ll

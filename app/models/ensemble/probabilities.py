@@ -1,4 +1,5 @@
 """概率基础(审查 §36:ensemble 拆分)。"""
+
 from __future__ import annotations
 
 from app.models.distributions import matrix_to_probs, pois_matrix

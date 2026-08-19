@@ -13,23 +13,57 @@
 "injuries 含 position 已有"不成立)——位置无法解析时按中场基准 -3% 计,并在
 summary 标注 position_missing;付费 lineups 数据到位后自动启用真实位置加权。
 """
+
 from datetime import datetime
 
 # 位置 → 权重(文档 §5.2 Phase A;position 缺失时按中场基准)
 POSITION_WEIGHTS = {
-    "forward": 0.06, "attacker": 0.06, "striker": 0.06, "cf": 0.06,
-    "winger": 0.06, "lw": 0.06, "rw": 0.06,
-    "midfielder": 0.03, "cm": 0.03, "dm": 0.03, "am": 0.03,
-    "defender": 0.02, "cb": 0.02, "lb": 0.02, "rb": 0.02,
-    "goalkeeper": 0.03, "gk": 0.03,
+    "forward": 0.06,
+    "attacker": 0.06,
+    "striker": 0.06,
+    "cf": 0.06,
+    "winger": 0.06,
+    "lw": 0.06,
+    "rw": 0.06,
+    "midfielder": 0.03,
+    "cm": 0.03,
+    "dm": 0.03,
+    "am": 0.03,
+    "defender": 0.02,
+    "cb": 0.02,
+    "lb": 0.02,
+    "rb": 0.02,
+    "goalkeeper": 0.03,
+    "gk": 0.03,
 }
 DEFAULT_POSITION_WEIGHT = 0.03  # 位置未知 → 中场基准
 
 # 攻击端位置(影响进攻);防守端位置(影响防守);中场攻防皆影响
-ATTACK_POSITIONS = {"forward", "attacker", "striker", "cf", "winger", "lw", "rw",
-                    "midfielder", "cm", "dm", "am"}
-DEFENSE_POSITIONS = {"defender", "cb", "lb", "rb", "goalkeeper", "gk",
-                     "midfielder", "cm", "dm", "am"}
+ATTACK_POSITIONS = {
+    "forward",
+    "attacker",
+    "striker",
+    "cf",
+    "winger",
+    "lw",
+    "rw",
+    "midfielder",
+    "cm",
+    "dm",
+    "am",
+}
+DEFENSE_POSITIONS = {
+    "defender",
+    "cb",
+    "lb",
+    "rb",
+    "goalkeeper",
+    "gk",
+    "midfielder",
+    "cm",
+    "dm",
+    "am",
+}
 
 # 核心识别:缺阵 ≥ 60 天视为核心球员(长期缺阵),影响 ×1.5
 CORE_DAYS = 60
@@ -68,7 +102,9 @@ def _core_mult(player: dict, match_day: str) -> float:
         return 1.0
     try:
         inj_dt = datetime.fromisoformat(str(d).replace("Z", ""))
-        day_dt = datetime.fromisoformat(str(match_day or datetime.now().date()))
+        day_dt = datetime.fromisoformat(
+            str(match_day or datetime.now(tz=datetime.timezone.utc).date())
+        )
         days = (day_dt - inj_dt).days
         return CORE_MULT if days >= CORE_DAYS else 1.0
     except (ValueError, TypeError):
@@ -96,8 +132,9 @@ def _side_impacts(records: list[dict], match_day: str) -> tuple[float, float, in
     return atk, dfn, n, pos_missing
 
 
-def injuries_to_signals(home_injuries: list[dict], away_injuries: list[dict],
-                        match_day: str | None = None) -> dict:
+def injuries_to_signals(
+    home_injuries: list[dict], away_injuries: list[dict], match_day: str | None = None
+) -> dict:
     """伤停记录 → info_fusion 兼容信号 dict(位置加权,§5.2 Phase A)。
 
     home_injuries/away_injuries: filter_by_team 后的伤停记录列表。
@@ -138,22 +175,32 @@ def signal_brief(signals: dict) -> str:
     """信号的人类可读摘要(供简报/调试)"""
     s = signals["summary"]
     lines = [
-        (f"伤停信号: 主队缺 {s['home_injured']} 人"
-         f"(位置未知 {s['home_position_missing']}),"
-         f"客队缺 {s['away_injured']} 人(位置未知 {s['away_position_missing']})"),
-        (f"  λ 修正: 主队攻 {signals['home_attack_impact']:+.2f}/防 {signals['home_defense_impact']:+.2f},"
-         f" 客队攻 {signals['away_attack_impact']:+.2f}/防 {signals['away_defense_impact']:+.2f}"),
+        (
+            f"伤停信号: 主队缺 {s['home_injured']} 人"
+            f"(位置未知 {s['home_position_missing']}),"
+            f"客队缺 {s['away_injured']} 人(位置未知 {s['away_position_missing']})"
+        ),
+        (
+            f"  λ 修正: 主队攻 {signals['home_attack_impact']:+.2f}/防 {signals['home_defense_impact']:+.2f},"
+            f" 客队攻 {signals['away_attack_impact']:+.2f}/防 {signals['away_defense_impact']:+.2f}"
+        ),
     ]
     return "\n".join(lines)
 
 
 if __name__ == "__main__":
     # 自测:位置加权方向
-    rec = [{"player": {"name": "A", "position": "Forward"}},
-           {"player": {"name": "B", "position": "Defender"}},
-           {"player": {"name": "C", "position": ""}}]
+    rec = [
+        {"player": {"name": "A", "position": "Forward"}},
+        {"player": {"name": "B", "position": "Defender"}},
+        {"player": {"name": "C", "position": ""}},
+    ]
     sig = injuries_to_signals(rec, [], "2026-08-15")
     print(signal_brief(sig))
-    assert sig["home_attack_impact"] == -0.09, sig["home_attack_impact"]  # 前锋6%+未知中场3%
-    assert sig["home_defense_impact"] == -0.05, sig["home_defense_impact"]  # 后卫2%+未知中场3%
+    assert sig["home_attack_impact"] == -0.09, sig[
+        "home_attack_impact"
+    ]  # 前锋6%+未知中场3%
+    assert sig["home_defense_impact"] == -0.05, sig[
+        "home_defense_impact"
+    ]  # 后卫2%+未知中场3%
     print("✅ 位置加权自测通过")

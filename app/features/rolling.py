@@ -3,6 +3,7 @@
 提供:出场长表构建 + expanding/rolling 原语;家族模块(attack_defense/form/h2h)
 在此之上实现各自 compute,由 factory 统一调度。
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -25,12 +26,19 @@ def build_long_table(data: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
         part = df[["index", team_col, gf_col, ga_col]].copy()
         part["side"] = side
         part = part.rename(columns={team_col: "team", gf_col: "gf", ga_col: "ga"})
-        part["win"] = np.where(part["gf"].isna() | part["ga"].isna(), np.nan,
-                               (part["gf"] > part["ga"]).astype(float))
+        part["win"] = np.where(
+            part["gf"].isna() | part["ga"].isna(),
+            np.nan,
+            (part["gf"] > part["ga"]).astype(float),
+        )
         part["gd"] = part["gf"] - part["ga"]
-        part["points"] = np.where(part["win"].isna(), np.nan,
-                                  np.where(part["win"] == 1, 3.0,
-                                           np.where(part["gf"] == part["ga"], 1.0, 0.0)))
+        part["points"] = np.where(
+            part["win"].isna(),
+            np.nan,
+            np.where(
+                part["win"] == 1, 3.0, np.where(part["gf"] == part["ga"], 1.0, 0.0)
+            ),
+        )
         if "date" in df.columns:
             part["date"] = df["date"].values
         parts.append(part)
@@ -50,12 +58,14 @@ def expanding_prior(long: pd.DataFrame, col: str, out: str) -> np.ndarray:
     s = s.groupby(level=0).shift(1)
     stat = s.reset_index()
     stat.columns = ["team", "row_idx", out]
-    return long.merge(stat, left_on=["team", "row_id"],
-                      right_on=["team", "row_idx"], how="left")[out].values
+    return long.merge(
+        stat, left_on=["team", "row_id"], right_on=["team", "row_idx"], how="left"
+    )[out].values
 
 
-def valid_rolling(long: pd.DataFrame, col: str, window: int, agg: str,
-                  side: str | None = None) -> np.ndarray:
+def valid_rolling(
+    long: pd.DataFrame, col: str, window: int, agg: str, side: str | None = None
+) -> np.ndarray:
     """仅对有效值行做 rolling(比分 NaN 预测行不占窗口),按 (team,row_id) 回填。"""
     sub = long if side is None else long[long["side"] == side]
     valid = sub.dropna(subset=[col])
@@ -66,5 +76,6 @@ def valid_rolling(long: pd.DataFrame, col: str, window: int, agg: str,
     s = s.groupby(level=0).shift(1)
     stat = s.reset_index()
     stat.columns = ["team", "row_idx", "out"]
-    return long.merge(stat, left_on=["team", "row_id"],
-                      right_on=["team", "row_idx"], how="left")["out"].values
+    return long.merge(
+        stat, left_on=["team", "row_id"], right_on=["team", "row_idx"], how="left"
+    )["out"].values

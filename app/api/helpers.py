@@ -27,6 +27,10 @@ def require_admin(user=Depends(get_current_user)):
 
 def validate_password_strength(pwd: str) -> str | None:
     """密码强度校验:至少 8 位且含字母和数字;通过返回 None,否则返回错误文案"""
-    if len(pwd) < 8 or not any(ch.isalpha() for ch in pwd) or not any(ch.isdigit() for ch in pwd):
+    if (
+        len(pwd) < 8
+        or not any(ch.isalpha() for ch in pwd)
+        or not any(ch.isdigit() for ch in pwd)
+    ):
         return "密码至少 8 位且包含字母和数字"
     return None

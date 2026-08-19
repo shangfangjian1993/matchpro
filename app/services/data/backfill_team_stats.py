@@ -5,6 +5,7 @@
 用法:
     python scripts/backfill_team_stats.py
 """
+
 import os
 import sys
 
@@ -12,10 +13,24 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.services.cli import run, setup_logging
 
-_FIELDS = ["xg", "shots", "shots_on_target", "corners", "possession",
-           "yellow_cards", "red_cards", "ht_goals", "passing_accuracy",
-           "xg_chain", "efficiency", "transition_speed", "defensive_actions",
-           "counter_attacks", "tactical_rating", "experience"]
+_FIELDS = [
+    "xg",
+    "shots",
+    "shots_on_target",
+    "corners",
+    "possession",
+    "yellow_cards",
+    "red_cards",
+    "ht_goals",
+    "passing_accuracy",
+    "xg_chain",
+    "efficiency",
+    "transition_speed",
+    "defensive_actions",
+    "counter_attacks",
+    "tactical_rating",
+    "experience",
+]
 
 
 def main() -> int:

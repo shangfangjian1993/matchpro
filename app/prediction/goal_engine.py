@@ -3,6 +3,7 @@
 输出:成员概率(4 成员)、比分矩阵、Score Outputs(Top5/Over-Under/BTTS/xG)、
 融合 λ(与概率一致的期望进球)。
 """
+
 from __future__ import annotations
 
 from app.models.ensemble import (
@@ -14,9 +15,17 @@ from app.models.ensemble import (
 )
 
 
-def compute_members(lam_h: float, lam_a: float, lam_eh: float, lam_ea: float,
-                    tau: float, phi: float, weights: dict,
-                    lam_bh: float | None = None, lam_ba: float | None = None) -> dict:
+def compute_members(
+    lam_h: float,
+    lam_a: float,
+    lam_eh: float,
+    lam_ea: float,
+    tau: float,
+    phi: float,
+    weights: dict,
+    lam_bh: float | None = None,
+    lam_ba: float | None = None,
+) -> dict:
     """四成员概率 + 比分矩阵 + Score Outputs + 融合 λ。
 
     lam_eh/lam_ea: ELO-Goal 成员 λ(已含伤停乘数)。
@@ -48,9 +57,15 @@ def compute_members(lam_h: float, lam_a: float, lam_eh: float, lam_ea: float,
     # 审查 P1-8/9:Goal 权重归一化 —— GBM 只进 Outcome(1X2),不得缩放 λ;
     # 归一化后 fused λ 与 score matrix(内部 out/sum)严格一致。
     if wg > 0:
-        fused_lams = (wh / wg * lam_h + we / wg * lam_eh,
-                      wh / wg * lam_a + we / wg * lam_ea)
+        fused_lams = (
+            wh / wg * lam_h + we / wg * lam_eh,
+            wh / wg * lam_a + we / wg * lam_ea,
+        )
     else:
         fused_lams = (lam_h, lam_a)
-    return {"members": members, "score_out": score_out, "fused_lams": fused_lams,
-            "fused_matrix": fused_matrix}
+    return {
+        "members": members,
+        "score_out": score_out,
+        "fused_lams": fused_lams,
+        "fused_matrix": fused_matrix,
+    }

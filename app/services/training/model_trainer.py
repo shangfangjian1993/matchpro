@@ -1,5 +1,4 @@
-"""模型训练和评估系统
-"""
+"""模型训练和评估系统"""
 
 import json
 import logging
@@ -24,8 +23,9 @@ from app.models.poisson.tournament_factory import TournamentModelFactory
 logger = logging.getLogger(__name__)
 
 
-def _prepare_eval_split(model, data: pd.DataFrame, target_column: str,
-                        test_split_ratio: float = 0.2):
+def _prepare_eval_split(
+    model, data: pd.DataFrame, target_column: str, test_split_ratio: float = 0.2
+):
     """
     准备时间外评估数据:prepare 特征 → 白名单选列 → date 排序 → 后 20% 切分。
 
@@ -33,23 +33,36 @@ def _prepare_eval_split(model, data: pd.DataFrame, target_column: str,
     供 ModelTrainer._evaluate_model / ModelValidator.validate_model /
     ModelValidator.monitor_model_performance 共用,保证评估口径一致。
     """
-    prepared_data = model.prepare_league_specific_features(data) if hasattr(model, "prepare_league_specific_features") else (
-        model.prepare_tournament_specific_features(data) if hasattr(model, "prepare_tournament_specific_features") else data
+    prepared_data = (
+        model.prepare_league_specific_features(data)
+        if hasattr(model, "prepare_league_specific_features")
+        else (
+            model.prepare_tournament_specific_features(data)
+            if hasattr(model, "prepare_tournament_specific_features")
+            else data
+        )
     )
 
     # 特征选择(数值列白名单)
     if hasattr(model, "_select_feature_columns"):
         feature_columns = model._select_feature_columns(prepared_data, target_column)
     else:
-        feature_columns = [c for c in prepared_data.columns
-                           if c != target_column and c not in ["date", "league", "season"]
-                           and pd.api.types.is_numeric_dtype(prepared_data[c])]
+        feature_columns = [
+            c
+            for c in prepared_data.columns
+            if c != target_column
+            and c not in ["date", "league", "season"]
+            and pd.api.types.is_numeric_dtype(prepared_data[c])
+        ]
 
     # 按时间排序后切分:前 (1-ratio) 训练,后 ratio 时间外评估
     if "date" in prepared_data.columns and not prepared_data["date"].isna().all():
-        prepared_data = prepared_data.sort_values("date", kind="mergesort").reset_index(drop=True)
+        prepared_data = prepared_data.sort_values("date", kind="mergesort").reset_index(
+            drop=True
+        )
     # 审查 P1-7:按日期分组切分(同一比赛日不跨 train/test)
     from app.models.utils import date_group_split
+
     _trn, _tst = date_group_split(prepared_data, ratio=1 - test_split_ratio)
     X_train = _trn[feature_columns]
     y_train = _trn[target_column]
@@ -84,6 +97,7 @@ def compute_evaluation_metrics(y_true, y_pred) -> dict[str, float]:
         "within_two_accuracy": float(np.mean(np.abs(y_pred_rounded - y_true) <= 2)),
     }
 
+
 class ModelTrainer:
     """
     模型训练器
@@ -92,7 +106,7 @@ class ModelTrainer:
     def __init__(self, config: ModelConfig | None = None):
         """
         初始化模型训练器
-        
+
         Args:
             config: 模型配置
         """
@@ -103,20 +117,24 @@ class ModelTrainer:
         self.feature_importance = {}
         self.model_metrics = {}
 
-    def train_model(self, data: pd.DataFrame, league_type: LeagueType,
-                   target_column: str = "goals",
-                   cross_validation: bool = True,
-                   cv_folds: int = 5) -> dict[str, Any]:
+    def train_model(
+        self,
+        data: pd.DataFrame,
+        league_type: LeagueType,
+        target_column: str = "goals",
+        cross_validation: bool = True,
+        cv_folds: int = 5,
+    ) -> dict[str, Any]:
         """
         训练模型
-        
+
         Args:
             data: 训练数据
             league_type: 联赛类型
             target_column: 目标变量列名
             cross_validation: 是否进行交叉验证
             cv_folds: 交叉验证折数
-            
+
         Returns:
             训练结果
         """
@@ -128,40 +146,52 @@ class ModelTrainer:
         else:
             model = LeagueModelFactory.create_league_model(league_type)
 
-
         # 训练模型
         training_results = model.train(data, target_column)
 
         # 交叉验证
         if cross_validation:
-            cv_results = self._perform_cross_validation(model, data, target_column, cv_folds, league_type)
+            cv_results = self._perform_cross_validation(
+                model, data, target_column, cv_folds, league_type
+            )
             training_results["cross_validation"] = cv_results
 
         # 评估模型
-        evaluation_results = self._evaluate_model(model, data, target_column, league_type)
+        evaluation_results = self._evaluate_model(
+            model, data, target_column, league_type
+        )
         training_results["evaluation"] = evaluation_results
 
         # 保存训练历史
-        self.training_history.append({
-            "timestamp": datetime.now(),
-            "league_type": league_type.value,
-            "data_shape": data.shape,
-            "training_results": training_results,
-            "evaluation_results": evaluation_results
-        })
+        self.training_history.append(
+            {
+                "timestamp": datetime.now(tz=datetime.timezone.utc),
+                "league_type": league_type.value,
+                "data_shape": data.shape,
+                "training_results": training_results,
+                "evaluation_results": evaluation_results,
+            }
+        )
 
         self.model = model
 
-        logger.info(f"模型训练完成，验证损失: {evaluation_results.get('poisson_loss', 'N/A')}")
+        logger.info(
+            f"模型训练完成，验证损失: {evaluation_results.get('poisson_loss', 'N/A')}"
+        )
 
         return training_results
 
-    def _perform_cross_validation(self, model, data: pd.DataFrame,
-                                  target_column: str, cv_folds: int,
-                                  league_type: LeagueType) -> dict[str, Any]:
+    def _perform_cross_validation(
+        self,
+        model,
+        data: pd.DataFrame,
+        target_column: str,
+        cv_folds: int,
+        league_type: LeagueType,
+    ) -> dict[str, Any]:
         """
         执行交叉验证
-        
+
         Args:
             model: 模型
             data: 数据
@@ -172,21 +202,36 @@ class ModelTrainer:
         logger.info(f"开始 {cv_folds} 折交叉验证...")
 
         # 准备数据
-        prepared_data = model.prepare_league_specific_features(data) if hasattr(model, "prepare_league_specific_features") else (
-            model.prepare_tournament_specific_features(data) if hasattr(model, "prepare_tournament_specific_features") else data
+        prepared_data = (
+            model.prepare_league_specific_features(data)
+            if hasattr(model, "prepare_league_specific_features")
+            else (
+                model.prepare_tournament_specific_features(data)
+                if hasattr(model, "prepare_tournament_specific_features")
+                else data
+            )
         )
 
         # 统一用数值列白名单选择特征(与 _evaluate_model / train() 一致,防比分列泄漏)
         if hasattr(model, "_select_feature_columns"):
-            feature_columns = model._select_feature_columns(prepared_data, target_column)
+            feature_columns = model._select_feature_columns(
+                prepared_data, target_column
+            )
         else:
-            feature_columns = [c for c in prepared_data.columns
-                               if c != target_column and c not in ["date", "league", "season"]
-                               and pd.api.types.is_numeric_dtype(prepared_data[c])]
+            feature_columns = [
+                c
+                for c in prepared_data.columns
+                if c != target_column
+                and c not in ["date", "league", "season"]
+                and pd.api.types.is_numeric_dtype(prepared_data[c])
+            ]
 
         # 只保留特征列 + date(时间排序用) + 目标列
-        keep = [c for c in prepared_data.columns
-                if c in feature_columns or c in ("date", target_column)]
+        keep = [
+            c
+            for c in prepared_data.columns
+            if c in feature_columns or c in ("date", target_column)
+        ]
         prepared_data = prepared_data[keep]
 
         X = prepared_data[feature_columns]
@@ -200,6 +245,7 @@ class ModelTrainer:
 
         # 使用时间序列交叉验证(审查 P1-7:按日期组折叠,折边界不切开同一天)
         from app.models.utils import date_group_folds
+
         cv_folds_list = date_group_folds(prepared_data, n_splits=cv_folds)
 
         cv_scores = []
@@ -212,9 +258,12 @@ class ModelTrainer:
 
             # 折内问题列剔除:常量列 + 非空率过低的列
             # (sklearn 分箱器对"非空率低+大量NaN"的列有 bug,如早期折内 xG 特征仅 ~13% 非空)
-            keep = [col for col in X_train.columns
-                    if X_train[col].notna().mean() > 0.2
-                    and X_train[col].nunique(dropna=True) > 1]
+            keep = [
+                col
+                for col in X_train.columns
+                if X_train[col].notna().mean() > 0.2
+                and X_train[col].nunique(dropna=True) > 1
+            ]
             X_train, X_test = X_train[keep], X_test[keep]
 
             # 训练模型(使用与最终模型相同的联赛配置)
@@ -237,7 +286,7 @@ class ModelTrainer:
             "cv_std": np.std(cv_scores),
             "cv_mse_mean": np.mean(cv_mse),
             "cv_mae_mean": np.mean(cv_mae),
-            "cv_folds": cv_folds
+            "cv_folds": cv_folds,
         }
 
         self.cross_validation_results[league_type.value] = cv_results
@@ -246,11 +295,12 @@ class ModelTrainer:
 
         return cv_results
 
-    def _evaluate_model(self, model, data: pd.DataFrame, target_column: str,
-                        league_type: LeagueType) -> dict[str, Any]:
+    def _evaluate_model(
+        self, model, data: pd.DataFrame, target_column: str, league_type: LeagueType
+    ) -> dict[str, Any]:
         """
         评估模型性能
-        
+
         Args:
             model: 模型
             data: 数据
@@ -276,18 +326,28 @@ class ModelTrainer:
         if hasattr(model, "model") and model.model is not None:
             fi = getattr(model.model, "feature_importance_", None)
             if fi is not None and len(fi) > 0:
-                feature_importance = fi.to_dict() if hasattr(fi, "to_dict") else dict(zip(feature_columns, fi))
+                feature_importance = (
+                    fi.to_dict()
+                    if hasattr(fi, "to_dict")
+                    else dict(zip(feature_columns, fi))
+                )
 
         evaluation_results = {
             "mse": metrics["mse"],
             "mae": metrics["mae"],
             "rmse": metrics["rmse"],
             "poisson_loss": metrics["poisson_loss"],
-            "accuracy_metrics": {k: metrics[k] for k in
-                                 ("exact_accuracy", "within_one_accuracy", "within_two_accuracy")},
+            "accuracy_metrics": {
+                k: metrics[k]
+                for k in (
+                    "exact_accuracy",
+                    "within_one_accuracy",
+                    "within_two_accuracy",
+                )
+            },
             "feature_importance": feature_importance,
             "data_shape": data.shape,
-            "feature_count": len(feature_columns)
+            "feature_count": len(feature_columns),
         }
 
         self.model_metrics[league_type.value] = evaluation_results
@@ -299,7 +359,7 @@ class ModelTrainer:
     def save_model(self, filepath: str, league_type: LeagueType) -> None:
         """
         保存模型
-        
+
         Args:
             filepath: 模型保存路径
             league_type: 联赛类型
@@ -324,7 +384,7 @@ class ModelTrainer:
     def load_model(self, filepath: str, league_type: LeagueType) -> None:
         """
         加载模型
-        
+
         Args:
             filepath: 模型文件路径
             league_type: 联赛类型

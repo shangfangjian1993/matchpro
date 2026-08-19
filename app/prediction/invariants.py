@@ -7,6 +7,7 @@
 engine 核心路径已内联 _check_matrix/_check_probs(抛 CorePredictionError);
 本模块为统一入口(测试/审计/快照校验共用)。
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -54,7 +55,11 @@ def check_matrix_marginal(matrix, probs, name: str = "score_matrix") -> list[str
     aw = float(m[np.triu_indices_from(m, 1)].sum())
     p = np.asarray(probs, dtype=float)
     vios = []
-    for got, want, label in ((hw, p[0], "home"), (dr, p[1], "draw"), (aw, p[2], "away")):
+    for got, want, label in (
+        (hw, p[0], "home"),
+        (dr, p[1], "draw"),
+        (aw, p[2], "away"),
+    ):
         if abs(got - want) > EPS:
             vios.append(f"{name} 边缘 {label}: {got:.6f} ≠ {want:.6f}")
     return vios
@@ -99,8 +104,11 @@ def check_top_scores(top_scores) -> list[str]:
 def validate_prediction(result: dict) -> list[str]:
     """对预测 result 做全套不变量检查;返回违规列表(空 = 全部通过)。"""
     vios = []
-    probs = [result.get("home_win_probability"), result.get("draw_probability"),
-             result.get("away_win_probability")]
+    probs = [
+        result.get("home_win_probability"),
+        result.get("draw_probability"),
+        result.get("away_win_probability"),
+    ]
     if any(p is None for p in probs):
         vios.append("1X2 概率缺失")
     else:
@@ -111,7 +119,11 @@ def validate_prediction(result: dict) -> list[str]:
             vios += check_matrix_marginal(matrix, probs)
         xg = result.get("expected_xg")
         if xg and len(xg) == 2:
-            vios += check_xg(matrix if matrix is not None else np.zeros((10, 10)),
-                             xg[0], xg[1], tol=0.15)
+            vios += check_xg(
+                matrix if matrix is not None else np.zeros((10, 10)),
+                xg[0],
+                xg[1],
+                tol=0.15,
+            )
     vios += check_top_scores(result.get("top_scores") or [])
     return vios

@@ -9,6 +9,7 @@
 实际 ~500+,下限 300)。段前训练临时 HGBR+GBM,段内采样场次用"截止该场"
 历史预测(严格赛前视角)。bayes 成员同步计算(与线上同口径)。
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -45,10 +46,15 @@ def generate(lt, league, matches, verbose=True):
         if len(seg) < 15 or len(prefix) < MIN_PREFIX_ROWS:
             continue
         if verbose:
-            print(f"  {lt.value}: 段{k}/{K_SEG-1} 前缀 {len(prefix)} 场 → 训练临时模型...", flush=True)
+            print(
+                f"  {lt.value}: 段{k}/{K_SEG - 1} 前缀 {len(prefix)} 场 → 训练临时模型...",
+                flush=True,
+            )
         prefix_df = matches_to_dataframe(prefix)
         temp_model = train_temp_model(prefix_df, lt)
-        prefix_prepared = temp_model.prepare_features(temp_model._sort_by_date(prefix_df))
+        prefix_prepared = temp_model.prepare_features(
+            temp_model._sort_by_date(prefix_df)
+        )
         _gbm = train_temp_gbm(prefix_df, prefix_prepared, temp_model)
         rng = np.random.default_rng(42)
         idx = rng.choice(len(seg), size=min(SAMPLE_PER_SEG, len(seg)), replace=False)
@@ -60,12 +66,28 @@ def generate(lt, league, matches, verbose=True):
             if len(history) < MIN_HISTORY:
                 continue
             hist_df = matches_to_dataframe(history)
-            rows = [{"date": match_dt, "home_team": m.home_team, "away_team": m.away_team,
-                     "home_goals": np.nan, "away_goals": np.nan, "goals": np.nan,
-                     "league": league.name, "season": league.season or ""},
-                    {"date": match_dt, "home_team": m.away_team, "away_team": m.home_team,
-                     "home_goals": np.nan, "away_goals": np.nan, "goals": np.nan,
-                     "league": league.name, "season": league.season or ""}]
+            rows = [
+                {
+                    "date": match_dt,
+                    "home_team": m.home_team,
+                    "away_team": m.away_team,
+                    "home_goals": np.nan,
+                    "away_goals": np.nan,
+                    "goals": np.nan,
+                    "league": league.name,
+                    "season": league.season or "",
+                },
+                {
+                    "date": match_dt,
+                    "home_team": m.away_team,
+                    "away_team": m.home_team,
+                    "home_goals": np.nan,
+                    "away_goals": np.nan,
+                    "goals": np.nan,
+                    "league": league.name,
+                    "season": league.season or "",
+                },
+            ]
             _df = pd.concat([hist_df, pd.DataFrame(rows)], ignore_index=True)
             try:
                 _df = temp_model._sort_by_date(_df)
@@ -76,8 +98,12 @@ def generate(lt, league, matches, verbose=True):
                 att_diff = float(feats["attack_elo_diff"].iloc[-2])
                 # 审查 P1-10:bayes 成员与线上同口径
                 from app.models.bayes_team import bayes_lambda
+
                 lam_bh, lam_ba = bayes_lambda(hist_df, m.home_team, m.away_team)
-            except Exception:
+            except Exception as _exc:
+                import logging as _lg
+
+                _lg.getLogger(__name__).debug("OOF 场次失败,跳过: %s", _exc)
                 continue
             gprob = None
             if _gbm is not None:
@@ -86,17 +112,25 @@ def generate(lt, league, matches, verbose=True):
                     gprob = list(_gbm.predict_proba(feats[_gc].iloc[[-2]])[0])
                 except Exception:
                     gprob = None
-            oof_samples.append({
-                "hgbr_lam_h": lam_h, "hgbr_lam_a": lam_a, "att_diff": att_diff,
-                "bayes_lam_h": lam_bh, "bayes_lam_a": lam_ba,
-                "home_goals": m.home_goals, "away_goals": m.away_goals,
-                "actual": _outcome(m.home_goals, m.away_goals),
-                "gbm": gprob,
-            })
+            oof_samples.append(
+                {
+                    "hgbr_lam_h": lam_h,
+                    "hgbr_lam_a": lam_a,
+                    "att_diff": att_diff,
+                    "bayes_lam_h": lam_bh,
+                    "bayes_lam_a": lam_ba,
+                    "home_goals": m.home_goals,
+                    "away_goals": m.away_goals,
+                    "actual": _outcome(m.home_goals, m.away_goals),
+                    "gbm": gprob,
+                }
+            )
             got += 1
         if verbose:
             print(f"    → 段{k} 采样 {got} 场", flush=True)
     if len(oof_samples) < MIN_OOF_SAMPLES:
-        print(f"  {lt.value}: OOF 样本仅 {len(oof_samples)}(<{MIN_OOF_SAMPLES}),跳过权重学习")
+        print(
+            f"  {lt.value}: OOF 样本仅 {len(oof_samples)}(<{MIN_OOF_SAMPLES}),跳过权重学习"
+        )
         return []
     return oof_samples

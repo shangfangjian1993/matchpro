@@ -1,5 +1,4 @@
-"""基础模型框架 - HGBR + Poisson损失函数
-"""
+"""基础模型框架 - HGBR + Poisson损失函数"""
 
 import logging
 import math
@@ -21,23 +20,25 @@ logger = logging.getLogger(__name__)
 class PoissonLossHGBR(BaseEstimator, RegressorMixin):
     """
     自定义HGBR模型，支持Poisson损失函数
-    
+
     使用histogram-based gradient boosting进行足球比赛得分预测
     """
 
-    def __init__(self,
-                 loss: str = "poisson",
-                 learning_rate: float = 0.1,
-                 max_depth: int = 6,
-                 min_samples_leaf: int = 10,
-                 random_state: int = 42,
-                 max_iter: int = 100,
-                 validation_fraction: float = 0.2,
-                 early_stopping_rounds: int = 10,
-                 verbose: bool = True):
+    def __init__(
+        self,
+        loss: str = "poisson",
+        learning_rate: float = 0.1,
+        max_depth: int = 6,
+        min_samples_leaf: int = 10,
+        random_state: int = 42,
+        max_iter: int = 100,
+        validation_fraction: float = 0.2,
+        early_stopping_rounds: int = 10,
+        verbose: bool = True,
+    ):
         """
         初始化HGBR模型
-        
+
         Args:
             loss: 损失函数，支持"poisson"
             learning_rate: 学习率
@@ -69,14 +70,16 @@ class PoissonLossHGBR(BaseEstimator, RegressorMixin):
         if loss not in ["poisson"]:
             raise ValueError(f"不支持的损失函数: {loss}，仅支持poisson")
 
-    def _validate_data(self, X: pd.DataFrame, y: pd.Series) -> tuple[pd.DataFrame, pd.Series]:
+    def _validate_data(
+        self, X: pd.DataFrame, y: pd.Series
+    ) -> tuple[pd.DataFrame, pd.Series]:
         """
         验证和预处理数据
-        
+
         Args:
             X: 特征数据
             y: 目标变量
-            
+
         Returns:
             处理后的特征和目标数据
         """
@@ -105,11 +108,11 @@ class PoissonLossHGBR(BaseEstimator, RegressorMixin):
     def _calculate_poisson_loss(self, y_true: np.ndarray, y_pred: np.ndarray) -> float:
         """
         计算Poisson损失函数
-        
+
         Args:
             y_true: 真实值
             y_pred: 预测值
-            
+
         Returns:
             Poisson损失值
         """
@@ -120,15 +123,16 @@ class PoissonLossHGBR(BaseEstimator, RegressorMixin):
         loss = np.mean(y_pred - y_true * np.log(y_pred))
         return loss
 
-    def fit(self, X: pd.DataFrame, y: pd.Series,
-            sample_weight: np.ndarray | None = None) -> "PoissonLossHGBR":
+    def fit(
+        self, X: pd.DataFrame, y: pd.Series, sample_weight: np.ndarray | None = None
+    ) -> "PoissonLossHGBR":
         """
         训练模型
-        
+
         Args:
             X: 特征数据
             y: 目标变量
-            
+
         Returns:
             训练好的模型
         """
@@ -140,8 +144,11 @@ class PoissonLossHGBR(BaseEstimator, RegressorMixin):
         # 划分训练集和验证集（shuffle=False 按时间顺序切分;数据过少时不切分）
         if self.validation_fraction > 0 and len(X) >= 10:
             X_train, X_val, y_train, y_val = train_test_split(
-                X, y, test_size=self.validation_fraction,
-                random_state=self.random_state, shuffle=False
+                X,
+                y,
+                test_size=self.validation_fraction,
+                random_state=self.random_state,
+                shuffle=False,
             )
             w_train = None
             if sample_weight is not None:
@@ -149,12 +156,16 @@ class PoissonLossHGBR(BaseEstimator, RegressorMixin):
                 w_train = np.asarray(sample_weight, dtype=float)[:_split]
         else:
             X_train, X_val, y_train, y_val = X, None, y, None
-            w_train = (np.asarray(sample_weight, dtype=float)
-                       if sample_weight is not None else None)
+            w_train = (
+                np.asarray(sample_weight, dtype=float)
+                if sample_weight is not None
+                else None
+            )
 
         # 训练梯度提升模型
-        self.model = self._train_gradient_boosting(X_train, y_train, X_val, y_val,
-                                                   w_train)
+        self.model = self._train_gradient_boosting(
+            X_train, y_train, X_val, y_val, w_train
+        )
 
         # 计算特征重要性
         self.feature_importance_ = self._calculate_feature_importance()
@@ -162,18 +173,23 @@ class PoissonLossHGBR(BaseEstimator, RegressorMixin):
         logger.info("模型训练完成")
         return self
 
-    def _train_gradient_boosting(self, X_train: pd.DataFrame, y_train: pd.Series,
-                                X_val: pd.DataFrame | None, y_val: pd.Series | None,
-                                w_train: np.ndarray | None = None) -> Any:
+    def _train_gradient_boosting(
+        self,
+        X_train: pd.DataFrame,
+        y_train: pd.Series,
+        X_val: pd.DataFrame | None,
+        y_val: pd.Series | None,
+        w_train: np.ndarray | None = None,
+    ) -> Any:
         """
         训练梯度提升模型
-        
+
         Args:
             X_train: 训练集特征
             y_train: 训练集目标
             X_val: 验证集特征
             y_val: 验证集目标
-            
+
         Returns:
             训练好的模型
         """
@@ -206,7 +222,9 @@ class PoissonLossHGBR(BaseEstimator, RegressorMixin):
         # 计算验证分数
         if X_val is not None and y_val is not None:
             val_pred = model.predict(X_val)
-            self.validation_score_ = self._calculate_poisson_loss(y_val.values, val_pred)
+            self.validation_score_ = self._calculate_poisson_loss(
+                y_val.values, val_pred
+            )
             logger.info(f"验证集Poisson损失: {self.validation_score_:.4f}")
 
         return model
@@ -214,7 +232,7 @@ class PoissonLossHGBR(BaseEstimator, RegressorMixin):
     def _calculate_feature_importance(self) -> pd.Series:
         """
         计算特征重要性
-        
+
         Returns:
             特征重要性Series
         """
@@ -223,7 +241,9 @@ class PoissonLossHGBR(BaseEstimator, RegressorMixin):
 
         try:
             if hasattr(self.model, "feature_importances_"):
-                return pd.Series(self.model.feature_importances_, index=self.model.feature_names_in_)
+                return pd.Series(
+                    self.model.feature_importances_, index=self.model.feature_names_in_
+                )
             else:
                 # HGBR 无 feature_importances_:不返回伪造占位值,返回空并标注不可用
                 return pd.Series(dtype=float, name="unavailable")
@@ -233,10 +253,10 @@ class PoissonLossHGBR(BaseEstimator, RegressorMixin):
     def predict(self, X: pd.DataFrame) -> np.ndarray:
         """
         预测目标变量
-        
+
         Args:
             X: 特征数据
-            
+
         Returns:
             预测的目标变量值
         """
@@ -263,10 +283,10 @@ class PoissonLossHGBR(BaseEstimator, RegressorMixin):
     def predict_proba(self, X: pd.DataFrame) -> np.ndarray:
         """
         预测概率分布（Poisson分布）
-        
+
         Args:
             X: 特征数据
-            
+
         Returns:
             每个可能得分的概率（行内归一化，和为1）
         """
@@ -281,7 +301,9 @@ class PoissonLossHGBR(BaseEstimator, RegressorMixin):
         lambdas = np.maximum(predictions, 1e-10)[:, np.newaxis]
 
         # log P(k) = -λ + k·log(λ) - log(k!)
-        log_probs = -lambdas + k[np.newaxis, :] * np.log(lambdas) - log_fact_k[np.newaxis, :]
+        log_probs = (
+            -lambdas + k[np.newaxis, :] * np.log(lambdas) - log_fact_k[np.newaxis, :]
+        )
         probabilities = np.exp(log_probs)
 
         # 行内归一化（截断分布，保证概率和为1）
@@ -294,11 +316,11 @@ class PoissonLossHGBR(BaseEstimator, RegressorMixin):
     def evaluate(self, X: pd.DataFrame, y: pd.Series) -> dict[str, float]:
         """
         评估模型性能
-        
+
         Args:
             X: 特征数据
             y: 真实目标变量
-            
+
         Returns:
             评估指标字典
         """
@@ -313,20 +335,22 @@ class PoissonLossHGBR(BaseEstimator, RegressorMixin):
             "mse": mean_squared_error(y, y_pred),
             "mae": mean_absolute_error(y, y_pred),
             "rmse": np.sqrt(mean_squared_error(y, y_pred)),
-            "poisson_loss": self._calculate_poisson_loss(y.values, y_pred)
+            "poisson_loss": self._calculate_poisson_loss(y.values, y_pred),
         }
 
         return metrics
 
-    def cross_validate(self, X: pd.DataFrame, y: pd.Series, cv: int = 5) -> dict[str, float]:
+    def cross_validate(
+        self, X: pd.DataFrame, y: pd.Series, cv: int = 5
+    ) -> dict[str, float]:
         """
         交叉验证（时间序列切分，使用Poisson损失作为评分）
-        
+
         Args:
             X: 特征数据
             y: 目标变量
             cv: 交叉验证折数
-            
+
         Returns:
             交叉验证结果
         """
@@ -343,16 +367,12 @@ class PoissonLossHGBR(BaseEstimator, RegressorMixin):
         poisson_scorer = make_scorer(_neg_poisson_loss, greater_is_better=True)
         scores = cross_val_score(self, X, y, cv=tscv, scoring=poisson_scorer)
 
-        return {
-            "cv_scores": scores,
-            "cv_mean": -scores.mean(),
-            "cv_std": scores.std()
-        }
+        return {"cv_scores": scores, "cv_mean": -scores.mean(), "cv_std": scores.std()}
 
     def save_model(self, filepath: str) -> None:
         """
         保存模型
-        
+
         Args:
             filepath: 模型保存路径
         """
@@ -365,32 +385,35 @@ class PoissonLossHGBR(BaseEstimator, RegressorMixin):
             os.makedirs(dirname, exist_ok=True)
 
         # 保存模型
-        joblib.dump({
-            "model": self.model,
-            "feature_importance": self.feature_importance_,
-            "best_iteration": self.best_iteration_,
-            "validation_score": self.validation_score_,
-            "params": {
-                "loss": self.loss,
-                "learning_rate": self.learning_rate,
-                "max_depth": self.max_depth,
-                "min_samples_leaf": self.min_samples_leaf,
-                "random_state": self.random_state,
-                "early_stopping_rounds": self.early_stopping_rounds,
-                "max_iter": self.max_iter,
-                "validation_fraction": self.validation_fraction,
-            }
-        }, filepath)
+        joblib.dump(
+            {
+                "model": self.model,
+                "feature_importance": self.feature_importance_,
+                "best_iteration": self.best_iteration_,
+                "validation_score": self.validation_score_,
+                "params": {
+                    "loss": self.loss,
+                    "learning_rate": self.learning_rate,
+                    "max_depth": self.max_depth,
+                    "min_samples_leaf": self.min_samples_leaf,
+                    "random_state": self.random_state,
+                    "early_stopping_rounds": self.early_stopping_rounds,
+                    "max_iter": self.max_iter,
+                    "validation_fraction": self.validation_fraction,
+                },
+            },
+            filepath,
+        )
 
         logger.info(f"模型已保存到: {filepath}")
 
     def load_model(self, filepath: str) -> "PoissonLossHGBR":
         """
         加载模型
-        
+
         Args:
             filepath: 模型文件路径
-            
+
         Returns:
             加载的模型
         """
@@ -416,9 +439,13 @@ class PoissonLossHGBR(BaseEstimator, RegressorMixin):
         self.max_depth = params.get("max_depth", self.max_depth)
         self.min_samples_leaf = params.get("min_samples_leaf", self.min_samples_leaf)
         self.random_state = params.get("random_state", self.random_state)
-        self.early_stopping_rounds = params.get("early_stopping_rounds", self.early_stopping_rounds)
+        self.early_stopping_rounds = params.get(
+            "early_stopping_rounds", self.early_stopping_rounds
+        )
         self.max_iter = params.get("max_iter", self.max_iter)
-        self.validation_fraction = params.get("validation_fraction", self.validation_fraction)
+        self.validation_fraction = params.get(
+            "validation_fraction", self.validation_fraction
+        )
 
         logger.info(f"模型已从 {filepath} 加载")
         return self

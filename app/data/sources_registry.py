@@ -17,8 +17,8 @@
   weekly    每周:深度统计/收盘赔率增量(近 20 季窗口)
   monthly   每月:欧战/国家队历史补全、新赛季全量 merge
 """
-from __future__ import annotations
 
+from __future__ import annotations
 
 # 数据类型 → (首选, 降级)
 PRIMARY_FALLBACK = {

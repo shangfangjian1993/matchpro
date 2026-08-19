@@ -38,3 +38,19 @@ class CorePredictionError(AppError):
     def __init__(self, code: str, message: str):
         super().__init__(f"[{code}] {message}", status_code=500)
         self.code = code
+
+
+class DataUnavailableError(AppError):
+    """数据缺失/过期(可降级为 NaN/跳过)。"""
+
+
+class FeatureUnavailableError(AppError):
+    """特征族数据不可用(降级:该族留 NaN,不阻断主链路)。"""
+
+
+class FeatureSchemaError(AppError):
+    """特征 schema 不匹配(列/类型与模型契约不一致 —— fail-fast)。"""
+
+
+class FeatureComputationError(AppError):
+    """特征计算失败(实现异常 —— fail-fast,不静默降级)。"""

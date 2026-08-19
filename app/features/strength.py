@@ -5,6 +5,7 @@
   version() : 规格 JSON 哈希(特征 A/B 归因;增删/改公式即变化)
   compute() : 特征计算入口(滚动族由 factory 统一调度)
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -20,74 +21,74 @@ FEATURES: list[dict] = [
         "window": "all",
         "agg": "rating",
         "source": "teams.elo_rating",
-        "policy": "time_replay_prematch"
+        "policy": "time_replay_prematch",
     },
     {
         "name": "away_elo",
         "window": "all",
         "agg": "rating",
         "source": "teams.elo_rating",
-        "policy": "time_replay_prematch"
+        "policy": "time_replay_prematch",
     },
     {
         "name": "elo_diff",
         "window": "all",
         "agg": "diff",
         "source": "teams.elo_rating",
-        "policy": "time_replay_prematch"
+        "policy": "time_replay_prematch",
     },
     {
         "name": "home_attack_elo",
         "window": "all",
         "agg": "rating",
         "source": "teams.attack_elo",
-        "policy": "time_replay_prematch"
+        "policy": "time_replay_prematch",
     },
     {
         "name": "away_attack_elo",
         "window": "all",
         "agg": "rating",
         "source": "teams.attack_elo",
-        "policy": "time_replay_prematch"
+        "policy": "time_replay_prematch",
     },
     {
         "name": "attack_elo_diff",
         "window": "all",
         "agg": "diff",
         "source": "teams.attack_elo",
-        "policy": "time_replay_prematch"
+        "policy": "time_replay_prematch",
     },
     {
         "name": "home_defense_elo",
         "window": "all",
         "agg": "rating",
         "source": "teams.defense_elo",
-        "policy": "time_replay_prematch"
+        "policy": "time_replay_prematch",
     },
     {
         "name": "away_defense_elo",
         "window": "all",
         "agg": "rating",
         "source": "teams.defense_elo",
-        "policy": "time_replay_prematch"
+        "policy": "time_replay_prematch",
     },
     {
         "name": "defense_elo_diff",
         "window": "all",
         "agg": "diff",
         "source": "teams.defense_elo",
-        "policy": "time_replay_prematch"
-    }
+        "policy": "time_replay_prematch",
+    },
 ]
-
-
 
 
 def compute(df, league_type: str | None = None) -> pd.DataFrame:
     """附加三维 ELO 特征(赛前值,时间重放防泄漏)——真实现。"""
     from app.models.elo_goal.rating import with_elo_features
-    return with_elo_features(df, is_national=(league_type in ("world_cup", "european_championship")))
 
+    return with_elo_features(
+        df, is_national=(league_type in ("world_cup", "european_championship"))
+    )
 
 
 def version() -> str:
@@ -98,11 +99,14 @@ def version() -> str:
     必须纳入哈希 —— 否则"实现变了但特征版本不变",模型不会触发重训。
     """
     import inspect
-    spec = json.dumps(sorted(FEATURES, key=lambda f: f["name"]),
-                      ensure_ascii=False, sort_keys=True)
+
+    spec = json.dumps(
+        sorted(FEATURES, key=lambda f: f["name"]), ensure_ascii=False, sort_keys=True
+    )
     impl = inspect.getsource(compute)
     try:
         from app.models.elo_goal.rating import EloSystem, with_elo_features
+
         impl += "|" + inspect.getsource(with_elo_features)
         impl += "|" + inspect.getsource(EloSystem.update)
         impl += "|" + inspect.getsource(EloSystem._k_factor)

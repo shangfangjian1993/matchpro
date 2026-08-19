@@ -6,7 +6,7 @@ on:
   pull_request:
 
 jobs:
-  test:
+  lint-and-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,18 +19,29 @@ jobs:
       - name: Install production deps
         run: pip install -r requirements.txt
 
-      - name: Install dev deps (ruff)
+      - name: Install dev deps (ruff/pytest)
         run: pip install ruff pytest
 
-      - name: Lint (ruff F-class)
-        run: ruff check app pipelines tests --select F
+      # 审查 21cd12b P1-5:lint 从 --select F 升级为全规则(默认规则集)
+      - name: Lint (ruff full default rule set)
+        run: ruff check app pipelines tests
+
+      # 审查 21cd12b P1-5:格式一致性检查
+      - name: Format check
+        run: ruff format --check app pipelines tests
 
       - name: Compile check
         run: python -m compileall -q app pipelines tests
 
-      - name: Tests (ignore DB-dependent; football.db is gitignored)
+      - name: Unit tests (skip DB-dependent; football.db is gitignored)
         run: pytest -m "not db" -q
 
-      - name: DB-dependent tests (if football.db present)
+      # 审查 21cd12b 十六:DB 测试语义 —— 有库则必须真跑(失败=CI 红),
+      # 无库则明确标记 skip,不再 continue-on-error
+      - name: DB-dependent tests (require football.db)
+        if: hashFiles('data/football.db') != ''
         run: pytest -m db -q
-        continue-on-error: true
+
+      - name: DB tests skipped (no database)
+        if: hashFiles('data/football.db') == ''
+        run: echo "football.db absent — DB tests skipped in CI"

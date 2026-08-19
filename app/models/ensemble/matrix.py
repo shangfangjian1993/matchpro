@@ -1,4 +1,5 @@
 """比分矩阵与派生输出(审查 §36:ensemble 拆分)。"""
+
 from __future__ import annotations
 
 import numpy as np
@@ -9,6 +10,7 @@ from app.models.distributions import pois_matrix as _pois_matrix
 def _dc_matrix(lam_home: float, lam_away: float, tau: float = 0.0) -> np.ndarray:
     """Dixon-Coles 修正比分矩阵(τ=0 退化为泊松)。"""
     from app.models.dixon_coles.dc import _dc_tau
+
     m = _pois_matrix(lam_home, lam_away)
     for i in range(min(10, 2)):
         for j in range(min(10, 2)):
@@ -21,15 +23,19 @@ def _nb_matrix(lam_home: float, lam_away: float, phi: float = 1e9) -> np.ndarray
     import math
 
     from app.models.negbin.nb import _nb_logpmf
+
     m = np.zeros((10, 10))
     for i in range(10):
         for j in range(10):
-            m[i, j] = math.exp(_nb_logpmf(i, lam_home, phi) + _nb_logpmf(j, lam_away, phi))
+            m[i, j] = math.exp(
+                _nb_logpmf(i, lam_home, phi) + _nb_logpmf(j, lam_away, phi)
+            )
     return m / m.sum()
 
 
-def fuse_score_matrix(member_matrices: dict[str, np.ndarray],
-                      weights: dict | None = None) -> np.ndarray:
+def fuse_score_matrix(
+    member_matrices: dict[str, np.ndarray], weights: dict | None = None
+) -> np.ndarray:
     """比分矩阵融合:M_final = Σ w_i · M_i。"""
     w = weights or {"hgbr": 1.0, "dc": 0.0, "nb": 0.0, "elo": 0.0, "gbm": 0.0}
     out = np.zeros((10, 10))

@@ -2,6 +2,7 @@
 
 职责:matches_to_dataframe(ORM → 特征 DataFrame)+ 联赛枚举解析。
 """
+
 from __future__ import annotations
 
 import pandas as pd
@@ -14,7 +15,7 @@ def _resolve_league_type(league_type: str) -> LeagueType:
     if not league_type:
         raise ValueError("缺少 league_type 参数")
     try:
-        return LeagueType(league_type)      # 按枚举值(小写)匹配
+        return LeagueType(league_type)  # 按枚举值(小写)匹配
     except ValueError:
         try:
             return LeagueType[league_type]  # 按枚举名(大写)匹配
@@ -22,8 +23,9 @@ def _resolve_league_type(league_type: str) -> LeagueType:
             raise ValueError(f"不支持的联赛类型: {league_type}")
 
 
-def matches_to_dataframe(matches, league_name: str | None = None,
-                          league_season: str | None = None) -> pd.DataFrame:
+def matches_to_dataframe(
+    matches, league_name: str | None = None, league_season: str | None = None
+) -> pd.DataFrame:
     """把 matches 查询结果转成模型训练/预测所需的 DataFrame(含指标列)。
 
     league_name/league_season 可显式传入:避免每行访问 m.league 的 N+1 lazy load
@@ -58,4 +60,3 @@ def matches_to_dataframe(matches, league_name: str | None = None,
         df["date"] = pd.to_datetime(df["date"])
         df = df.sort_values("date").reset_index(drop=True)
     return df
-

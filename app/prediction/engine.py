@@ -23,6 +23,7 @@
           degraded snapshot;
   P2-Informational(FEATURE_IMPACT_UNAVAILABLE)→ 不影响。
 """
+
 from __future__ import annotations
 
 import logging
@@ -43,6 +44,7 @@ logger = logging.getLogger(__name__)
 
 def _poisson_proba(lambda_: float, max_goals: int = 10) -> np.ndarray:
     from app.models.distributions import pois_pmf_vec
+
     return pois_pmf_vec(lambda_, max_goals)
 
 
@@ -68,8 +70,9 @@ def _check_matrix(m) -> None:
     if np.any(arr < 0):
         raise CorePredictionError("SCORE_MATRIX_FAILURE", "score matrix 含负概率")
     if not np.isclose(arr.sum(), 1.0, atol=1e-4):
-        raise CorePredictionError("SCORE_MATRIX_FAILURE",
-                                  f"score matrix 和={arr.sum():.6f} ≠ 1")
+        raise CorePredictionError(
+            "SCORE_MATRIX_FAILURE", f"score matrix 和={arr.sum():.6f} ≠ 1"
+        )
 
 
 class PredictionEngine:
@@ -98,6 +101,7 @@ class PredictionEngine:
         # ══ P0-Core:Goal/Ensemble 核心 —— 失败直接 raise,不静默降级 ══
         try:
             from app.models.ensemble import elo_goal_lambda, fuse_probs, load_weights
+
             _w = load_weights(league_type.value)
             # 权重结构校验(审查十 P0-1:权重损坏不得静默)
             _w_keys = set(_w) - {"log_loss", "n", "shrinkage"}
@@ -110,6 +114,7 @@ class PredictionEngine:
             # 审查三十七 P2:上下文动态权重(默认关,开启须严格 OOF A/B)
             try:
                 from app.prediction.context_weights import adjust as _ctx_adj
+
                 _w, _ctx_info = _ctx_adj(_w, _att_diff, ctx.get("disagreement", 0.0))
             except Exception:
                 _ctx_info = None
@@ -117,7 +122,16 @@ class PredictionEngine:
             _tau, _phi = 0.0, 1e9
             try:
                 import json as _json
-                _pp = os.path.join(str(__import__("app.core.paths", fromlist=["ARTIFACTS_DIR"]).ARTIFACTS_DIR), "ensemble", "dc_nb_params.json")
+
+                _pp = os.path.join(
+                    str(
+                        __import__(
+                            "app.core.paths", fromlist=["ARTIFACTS_DIR"]
+                        ).ARTIFACTS_DIR
+                    ),
+                    "ensemble",
+                    "dc_nb_params.json",
+                )
                 if os.path.exists(_pp):
                     with open(_pp, encoding="utf-8") as _pf:
                         _prm = _json.load(_pf)
@@ -144,11 +158,21 @@ class PredictionEngine:
                 _check_lambda(_lam_ba, name="λ_bayes_away")
 
             try:
-                g = compute_members(_lam_h, _lam_a, _lam_eh, _lam_ea, _tau, _phi, _w,
-                                    lam_bh=_lam_bh, lam_ba=_lam_ba)
+                g = compute_members(
+                    _lam_h,
+                    _lam_a,
+                    _lam_eh,
+                    _lam_ea,
+                    _tau,
+                    _phi,
+                    _w,
+                    lam_bh=_lam_bh,
+                    lam_ba=_lam_ba,
+                )
             except Exception as _ce:
                 raise CorePredictionError(
-                    "CORE_PREDICTION_FAILURE", f"Goal 成员计算失败: {_ce}") from _ce
+                    "CORE_PREDICTION_FAILURE", f"Goal 成员计算失败: {_ce}"
+                ) from _ce
             _members = g["members"]
             _score_out = g["score_out"]
             _fused_matrix = g.get("fused_matrix")
@@ -179,17 +203,24 @@ class PredictionEngine:
                 home_win, draw, away_win = fuse(_goal_probs, _gbm_probs, _w)
             except Exception as _fe:
                 raise CorePredictionError(
-                    "ENSEMBLE_FAILURE", f"1X2 融合失败: {_fe}") from _fe
+                    "ENSEMBLE_FAILURE", f"1X2 融合失败: {_fe}"
+                ) from _fe
             _check_probs(home_win, draw, away_win)
         except CorePredictionError:
             raise
         except Exception as _e:
             raise CorePredictionError(
-                "CORE_PREDICTION_FAILURE", f"核心预测失败: {_e}") from _e
+                "CORE_PREDICTION_FAILURE", f"核心预测失败: {_e}"
+            ) from _e
 
         # Uncertainty(基于成员概率与特征质量;P2:FEATURE_IMPACT 不可用不降级)
-        _unc = uncertainty_compute((home_win, draw, away_win), _members, _gbm_probs,
-                                   _feat, getattr(model, "feature_columns_", []))
+        _unc = uncertainty_compute(
+            (home_win, draw, away_win),
+            _members,
+            _gbm_probs,
+            _feat,
+            getattr(model, "feature_columns_", []),
+        )
         _agreement, _data_quality = _unc["agreement"], _unc["data_quality"]
         _members_1x2 = {}
         try:
@@ -204,10 +235,13 @@ class PredictionEngine:
             _fi = getattr(getattr(model, "model", None), "feature_importance_", None)
             if _fi is not None and len(_fi):
                 _fcols = getattr(model, "feature_columns_", [])
-                _pairs = sorted(zip(_fcols, [float(x) for x in _fi]),
-                                key=lambda t: -abs(t[1]))[:8]
-                _feature_impact = [{"feature": str(f), "importance": round(float(v), 4)}
-                                   for f, v in _pairs]
+                _pairs = sorted(
+                    zip(_fcols, [float(x) for x in _fi]), key=lambda t: -abs(t[1])
+                )[:8]
+                _feature_impact = [
+                    {"feature": str(f), "importance": round(float(v), 4)}
+                    for f, v in _pairs
+                ]
             else:
                 _failure_codes.append("FEATURE_IMPACT_UNAVAILABLE")
         except Exception:
@@ -238,7 +272,9 @@ class PredictionEngine:
             "btts": _score_out["btts"],
             "expected_xg": _score_out["expected_xg"],
             "match_id": ctx.get("match_id"),
-            "match_date": match_dt.isoformat() if hasattr(match_dt, "isoformat") else str(match_dt),
+            "match_date": match_dt.isoformat()
+            if hasattr(match_dt, "isoformat")
+            else str(match_dt),
             "prediction_status": "degraded" if _degraded else "ok",
             "degraded_components": _degraded_components,
             "failure_codes": _failure_codes,
@@ -250,11 +286,17 @@ class PredictionEngine:
         _blend_info = None
         try:
             from app.prediction.prior_blend import blend_matrix as _prior_blend
+
             _m2, _blend_info = _prior_blend(
-                league.id, match_dt,
-                [result["home_win_probability"], result["draw_probability"],
-                 result["away_win_probability"]],
-                _fused_matrix)
+                league.id,
+                match_dt,
+                [
+                    result["home_win_probability"],
+                    result["draw_probability"],
+                    result["away_win_probability"],
+                ],
+                _fused_matrix,
+            )
             if _m2 is not None:
                 _check_matrix(_m2)
                 _arr = np.asarray(_m2, dtype=float)
@@ -267,10 +309,14 @@ class PredictionEngine:
                 result["away_win_probability"] = round(_aw2, 4)
                 result["prior_blend"] = _blend_info
                 # 审查十 P0-2 配套:校准前最终概率(校准器拟合对象 = 最终输出)
-                result["_pre_calibration_1x2"] = [round(_hw2, 6), round(_dr2, 6),
-                                                  round(_aw2, 6)]
-                _unc2 = recompute_after_adjust((_hw2, _dr2, _aw2),
-                                               _agreement, _data_quality)
+                result["_pre_calibration_1x2"] = [
+                    round(_hw2, 6),
+                    round(_dr2, 6),
+                    round(_aw2, 6),
+                ]
+                _unc2 = recompute_after_adjust(
+                    (_hw2, _dr2, _aw2), _agreement, _data_quality
+                )
                 result["confidence"] = _unc2["confidence"]
                 result["confidence_score"] = _unc2["confidence_score"]
                 result["prediction_entropy"] = _unc2["entropy"]
@@ -286,7 +332,8 @@ class PredictionEngine:
 
         # ══ P0-2:Calibration 校准**最终输出**概率(IPF 之后)══
         result, _cal_info, _cal_degraded = calibration_service.apply(
-            result, self.models_dir, league_type)
+            result, self.models_dir, league_type
+        )
         if _cal_degraded:
             _degraded_components.append("calibration")
             _failure_codes.append("CALIBRATION_UNAVAILABLE")
@@ -298,20 +345,27 @@ class PredictionEngine:
         if _m2 is not None:
             try:
                 from app.prediction.regime import ipf_to_target
+
                 _final_matrix = ipf_to_target(
                     np.asarray(_m2, dtype=float),
-                    (result["home_win_probability"], result["draw_probability"],
-                     result["away_win_probability"]))
+                    (
+                        result["home_win_probability"],
+                        result["draw_probability"],
+                        result["away_win_probability"],
+                    ),
+                )
                 _check_matrix(_final_matrix)
                 _final_matrix = _final_matrix.tolist()
             except CorePredictionError:
                 raise
             except Exception as _ie:
                 raise CorePredictionError(
-                    "SCORE_MATRIX_FAILURE", f"二次 IPF 失败: {_ie}") from _ie
+                    "SCORE_MATRIX_FAILURE", f"二次 IPF 失败: {_ie}"
+                ) from _ie
             # 从最终矩阵统一导出(P0-3:唯一输出源)
             try:
                 from app.models.ensemble import score_outputs as _so
+
                 _so2 = _so(np.asarray(_final_matrix, dtype=float))
                 result["top_scores"] = _so2["top_scores"]
                 result["over_2_5"] = _so2["over_2_5"]
@@ -320,14 +374,21 @@ class PredictionEngine:
                 result["expected_xg"] = _so2["expected_xg"]
             except Exception as _se:
                 raise CorePredictionError(
-                    "SCORE_MATRIX_FAILURE", f"最终矩阵导出失败: {_se}") from _se
+                    "SCORE_MATRIX_FAILURE", f"最终矩阵导出失败: {_se}"
+                ) from _se
 
         result["_internal"] = {
-            "home_lambda": home_lambda, "away_lambda": away_lambda,
-            "att_diff": _att_diff, "hist_df": ctx["hist_df"],
-            "model": model, "_m": _m, "_pred_df": _pred_df, "_feat": _feat,
+            "home_lambda": home_lambda,
+            "away_lambda": away_lambda,
+            "att_diff": _att_diff,
+            "hist_df": ctx["hist_df"],
+            "model": model,
+            "_m": _m,
+            "_pred_df": _pred_df,
+            "_feat": _feat,
             "fused_matrix": _final_matrix,
-            "cal_info": _cal_info, "degraded": _degraded,
+            "cal_info": _cal_info,
+            "degraded": _degraded,
             "degraded_components": _degraded_components,
             "failure_codes": _failure_codes,
         }

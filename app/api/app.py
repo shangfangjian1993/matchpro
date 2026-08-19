@@ -6,6 +6,7 @@
        user / notifications / experiments / features / health
 - 安全:JWT cookie + CSRF(api/security.py)、进程内限流、安全响应头
 """
+
 from __future__ import annotations
 
 import logging
@@ -29,11 +30,18 @@ def _ensure_admin() -> None:
         raise RuntimeError("ADMIN_PASSWORD 环境变量必须设置")
     from app.api.db import User
     from app.api.helpers import _hash_password
+
     admin = User.query.filter_by(username="admin").first()
     if admin is None:
         db = User.query.session
-        db.add(User(username="admin", email="admin@local",
-                    password_hash=_hash_password(admin_password), role="admin"))
+        db.add(
+            User(
+                username="admin",
+                email="admin@local",
+                password_hash=_hash_password(admin_password),
+                role="admin",
+            )
+        )
         db.commit()
         logger.info("管理员 admin 已创建")
     else:
@@ -57,9 +65,13 @@ def create_app() -> FastAPI:
     )
 
     cors_origins = os.environ.get("CORS_ORIGINS", "http://localhost:3000")
-    app.add_middleware(CORSMiddleware,
-                       allow_origins=[o.strip() for o in cors_origins.split(",") if o.strip()],
-                       allow_methods=["*"], allow_headers=["*"], allow_credentials=True)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[o.strip() for o in cors_origins.split(",") if o.strip()],
+        allow_methods=["*"],
+        allow_headers=["*"],
+        allow_credentials=True,
+    )
 
     # ---------------- V2 路由(新设计唯一入口)----------------
     from app.api.auth import router as auth_router
@@ -69,8 +81,16 @@ def create_app() -> FastAPI:
     from app.api.models import router as models_router
     from app.api.predictions import router as pred_router
     from app.api.user import router as user_router
-    for r in (auth_router, leagues_router, matches_router, pred_router,
-              models_router, user_router, meta_router):
+
+    for r in (
+        auth_router,
+        leagues_router,
+        matches_router,
+        pred_router,
+        models_router,
+        user_router,
+        meta_router,
+    ):
         app.include_router(r)
 
     # ---------------- 基础端点 ----------------
@@ -90,7 +110,9 @@ def create_app() -> FastAPI:
             try:
                 _check_rate(f"rl:{_client_ip(request)}", _LIMIT_MAX, _LIMIT_WINDOW)
             except Exception:
-                return JSONResponse({"error": "请求过于频繁,请稍后再试"}, status_code=429)
+                return JSONResponse(
+                    {"error": "请求过于频繁,请稍后再试"}, status_code=429
+                )
         resp = await call_next(request)
         resp.headers.setdefault("X-Content-Type-Options", "nosniff")
         resp.headers.setdefault("X-Frame-Options", "DENY")

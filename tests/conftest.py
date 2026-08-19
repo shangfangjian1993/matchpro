@@ -1,4 +1,5 @@
 """测试环境(最小集):共享 DB(只读优先)+ 应用 fixture。"""
+
 import os
 import sys
 
@@ -23,6 +24,7 @@ def _skip_db_tests_if_no_db(request):
 def app():
     """FastAPI 应用(TestClient 用)。"""
     from app.api.app import create_app
+
     return create_app()
 
 
@@ -30,6 +32,7 @@ def app():
 def client(app):
     """TestClient(触发 lifespan)。"""
     from fastapi.testclient import TestClient
+
     with TestClient(app) as c:
         yield c
 
@@ -38,6 +41,7 @@ def client(app):
 def db_ctx():
     """DB 会话上下文。"""
     from app.api.db import init_db, session_scope
+
     init_db()
     with session_scope():
         yield

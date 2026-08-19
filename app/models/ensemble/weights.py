@@ -1,4 +1,5 @@
 """权重配置与学习(审查 §36:ensemble 拆分)。"""
+
 from __future__ import annotations
 
 import json
@@ -7,7 +8,14 @@ import os
 
 import numpy as np
 
-DEFAULT_WEIGHTS = {"hgbr": 1.0, "dc": 0.0, "nb": 0.0, "elo": 0.0, "gbm": 0.0, "bayes": 0.0}
+DEFAULT_WEIGHTS = {
+    "hgbr": 1.0,
+    "dc": 0.0,
+    "nb": 0.0,
+    "elo": 0.0,
+    "gbm": 0.0,
+    "bayes": 0.0,
+}
 _WEIGHTS_PATH = None
 
 
@@ -16,9 +24,14 @@ def set_weights_path(path: str | None):
     _WEIGHTS_PATH = path
 
 
-def learn_weights(samples: list[dict], tau: float = 0.0, phi: float = 1e9,
-                 shrinkage: float = 0.15, prior: dict | None = None,
-                 max_weight: float = 0.7) -> dict:
+def learn_weights(
+    samples: list[dict],
+    tau: float = 0.0,
+    phi: float = 1e9,
+    shrinkage: float = 0.15,
+    prior: dict | None = None,
+    max_weight: float = 0.7,
+) -> dict:
     """shrinkage:向先验(默认 hgbr 主导)的 L2 收缩 —— 防止小样本 OOF 下
     学到极端权重(hgbr=0 / gbm=1 之类),把"概率收缩"式退化拉回平衡。
 
@@ -33,8 +46,10 @@ def learn_weights(samples: list[dict], tau: float = 0.0, phi: float = 1e9,
     present = [n for n in names_all if any(n in s for s in samples)]
     n = max(1, len(samples))
 
-    _prior = np.array([(prior or {}).get(name, 1.0 if name == "hgbr" else 0.0)
-                       for name in present], dtype=float)
+    _prior = np.array(
+        [(prior or {}).get(name, 1.0 if name == "hgbr" else 0.0) for name in present],
+        dtype=float,
+    )
     _prior = _prior / _prior.sum()
 
     def _nll_pure(w):
@@ -71,11 +86,16 @@ def learn_weights(samples: list[dict], tau: float = 0.0, phi: float = 1e9,
         return w
 
     from scipy.optimize import minimize
+
     w0 = np.array([1.0 if name == "hgbr" else 0.0 for name in present])
-    res = minimize(_nll, w0, method="SLSQP",
-                   bounds=[(0.0, max_weight)] * len(present),
-                   constraints={"type": "eq", "fun": lambda w: w.sum() - 1.0},
-                   options={"maxiter": 200, "ftol": 1e-9})
+    res = minimize(
+        _nll,
+        w0,
+        method="SLSQP",
+        bounds=[(0.0, max_weight)] * len(present),
+        constraints={"type": "eq", "fun": lambda w: w.sum() - 1.0},
+        options={"maxiter": 200, "ftol": 1e-9},
+    )
     w = np.clip(res.x, 0.0, 1.0)
     w = w / w.sum()
     out = {name: 0.0 for name in names_all}
@@ -95,6 +115,7 @@ def load_weights(league_key: str, default: dict | None = None) -> dict:
     if path is None:
         try:
             from app.core.paths import ARTIFACTS_DIR as _AD
+
             path = os.path.join(str(_AD), "ensemble", "ensemble_weights.json")
         except Exception:
             path = None

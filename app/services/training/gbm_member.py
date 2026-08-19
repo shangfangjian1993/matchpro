@@ -3,10 +3,11 @@
 对比 HGBR-Poisson 成员(experiments 记录),数据驱动决定接入 Ensemble 权重。
 用法: python -m app.services.gbm_member
 """
+
 import os
 import sys
 
-_ROOT = str(__import__('app.core.paths', fromlist=['PROJECT_ROOT']).PROJECT_ROOT)
+_ROOT = str(__import__("app.core.paths", fromlist=["PROJECT_ROOT"]).PROJECT_ROOT)
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
@@ -23,15 +24,26 @@ def main():
 
     init_db()
     with session_scope():
-        for lt in (LeagueType.PREMIER_LEAGUE, LeagueType.LA_LIGA,
-                   LeagueType.BUNDESLIGA, LeagueType.SERIE_A, LeagueType.LIGUE_1):
+        for lt in (
+            LeagueType.PREMIER_LEAGUE,
+            LeagueType.LA_LIGA,
+            LeagueType.BUNDESLIGA,
+            LeagueType.SERIE_A,
+            LeagueType.LIGUE_1,
+        ):
             league = League.query.filter_by(league_type=lt.value).first()
             if league is None:
                 continue
-            model = _load_model(lt, str(__import__("app.core.paths", fromlist=["MODELS_DIR"]).MODELS_DIR))
-            matches = Match.query.filter_by(league_id=league.id, match_status="finished").all()
-            df = matches_to_dataframe(matches, league_name=league.name,
-                                      league_season=league.season or "")
+            model = _load_model(
+                lt,
+                str(__import__("app.core.paths", fromlist=["MODELS_DIR"]).MODELS_DIR),
+            )
+            matches = Match.query.filter_by(
+                league_id=league.id, match_status="finished"
+            ).all()
+            df = matches_to_dataframe(
+                matches, league_name=league.name, league_season=league.season or ""
+            )
             prepared = model.prepare_features(df)
             cols = [c for c in model.feature_columns_ if c in prepared.columns]
             gh, ga = df["home_goals"].to_numpy(), df["away_goals"].to_numpy()
@@ -40,14 +52,19 @@ def main():
             m = gbm.train(prepared[cols], pd.Series(y, index=prepared.index))
             # 审查 P0-4:统一经 paths.MODELS_DIR(artifacts/models/<league>/gbm.pkl)
             from app.core.paths import MODELS_DIR as _MD
+
             _out_dir = os.path.join(str(_MD), lt.value)
             os.makedirs(_out_dir, exist_ok=True)
             out = os.path.join(_out_dir, "gbm.pkl")
             gbm.save(out)
-            print(f"{lt.value}: GBM ll={m['log_loss']} brier={m['brier']} "
-                  f"rps={m['rps']} acc={m['accuracy']} → {out}", flush=True)
+            print(
+                f"{lt.value}: GBM ll={m['log_loss']} brier={m['brier']} "
+                f"rps={m['rps']} acc={m['accuracy']} → {out}",
+                flush=True,
+            )
 
 
 if __name__ == "__main__":
     from app.services.cli import run
+
     raise SystemExit(run(main))

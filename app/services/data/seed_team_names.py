@@ -3,6 +3,7 @@
 用法:
     python scripts/seed_team_names.py
 """
+
 import os
 import sys
 
@@ -16,6 +17,7 @@ def main() -> int:
 
     from app.api.db import init_db, session_scope
     from app.data.canonical.team_names_zh import seed_from_builtin
+
     init_db()
     with session_scope():
         n = seed_from_builtin()

@@ -9,6 +9,7 @@
 
 注意:StatsBomb 开放数据赛季有限(主流到 2020/21);最近赛季需付费 token。
 """
+
 from __future__ import annotations
 
 import logging
@@ -30,6 +31,7 @@ _COMPETITION_NAMES = {
 def available() -> bool:
     try:
         import statsbombpy  # noqa: F401
+
         return True
     except ImportError:
         return False
@@ -37,6 +39,7 @@ def available() -> bool:
 
 def _norm(name: str) -> str:
     import re
+
     n = re.sub(r"\b(?:fc|cf|sc|afc|acf|wanderers)\b", "", str(name).lower())
     n = re.sub(r"[^a-z0-9 ]", "", n)
     return re.sub(r"\s+", " ", n).strip()
@@ -45,6 +48,7 @@ def _norm(name: str) -> str:
 def _season_matches(competition_id: int, season_id: int):
     """某赛事赛季的全部比赛:{(date, home_norm, away_norm): (home_xg, away_xg)}。"""
     from statsbombpy import sb
+
     ms = sb.matches(competition_id=competition_id, season_id=season_id)
     out = {}
     for _, r in ms.iterrows():
@@ -53,10 +57,12 @@ def _season_matches(competition_id: int, season_id: int):
         # shots 事件求和
         try:
             shots = sb.events(match_id=r["match_id"], split=True)["shot"]
-            home_xg = float(shots.loc[shots["team"].apply(_norm) == hn,
-                                      "shot_statsbomb_xg"].sum())
-            away_xg = float(shots.loc[shots["team"].apply(_norm) == an,
-                                      "shot_statsbomb_xg"].sum())
+            home_xg = float(
+                shots.loc[shots["team"].apply(_norm) == hn, "shot_statsbomb_xg"].sum()
+            )
+            away_xg = float(
+                shots.loc[shots["team"].apply(_norm) == an, "shot_statsbomb_xg"].sum()
+            )
         except Exception as e:
             logger.debug("match %s 事件失败: %s", r["match_id"], e)
             continue
@@ -67,6 +73,7 @@ def _season_matches(competition_id: int, season_id: int):
 def enrich_matches(league_type, rows, verbose: bool = True) -> dict:
     """回填 rows(缺失 xG 的历史场次)的 home_xg/away_xg。"""
     from statsbombpy import sb
+
     comp_name = _COMPETITION_NAMES.get(league_type.value)
     if comp_name is None:
         return {"updated": 0, "no_comp": len(rows), "unmatched": len(rows)}
@@ -78,6 +85,7 @@ def enrich_matches(league_type, rows, verbose: bool = True) -> dict:
     comp_id = int(cand.iloc[0]["competition_id"])
     year_set = {_season_year(m.match_date) for m in rows}
     from app.api.db import db
+
     updated = 0
     for _, srow in cand.iterrows():
         sid = int(srow["season_id"])
@@ -103,7 +111,11 @@ def enrich_matches(league_type, rows, verbose: bool = True) -> dict:
                 updated += 1
         db.session.flush()
     db.session.commit()
-    return {"updated": updated, "unmatched": len(rows) - updated, "checked_seasons": len(cand)}
+    return {
+        "updated": updated,
+        "unmatched": len(rows) - updated,
+        "checked_seasons": len(cand),
+    }
 
 
 def _season_year(dt):
