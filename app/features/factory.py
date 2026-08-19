@@ -42,16 +42,24 @@ def compute_all(df: pd.DataFrame,
         out = compute_metric_rolling(out, metric, metric)
     for metric in side_metric_columns:
         out = compute_side_metric_rolling(out, metric, metric)
-    # stats 特征族(team_match_stats 深度统计;数据未到位时附空列,模型自动跳过)
-    if hist_matches is not None:
-        try:
-            from app.features.stats_features import rolling_team_stats as _rolling_stats
-            _stats_df = _rolling_stats(hist_matches)
-            if not _stats_df.empty:
-                _stat_cols = [c for c in _stats_df.columns
-                              if c.startswith("home_tms") or c.startswith("away_tms")]
-                if _stat_cols:
-                    out = out.join(_stats_df[_stat_cols], how="left")
-        except Exception as _se:
-            logger.warning("stats 特征附加失败(降级,不影响主链路): %s", _se)
+    # stats 特征族(team_match_stats 深度统计)
+    # 审查 ae724d5:
+    #   - 按 match_id 显式 merge(不依赖 DataFrame 行序/index 对齐)
+    #   - 异常分级:数据缺失(hist 空/无 stats)→ NaN 列自动跳过(可降级);
+    #     实现/schema 异常 → 抛出(不静默降级,由上层 fail/invalid 标记)
+    if hist_matches:
+        # 审查 ae724d5:按 match_id 显式 merge(不依赖行序/index 对齐)
+        from app.features.stats_features import rolling_team_stats as _rolling_stats
+        _stats_df = _rolling_stats(hist_matches)   # index=match_id;空或 NaN 列则跳过
+        _stat_cols = [col for col in _stats_df.columns
+                      if col.startswith("home_tms") or col.startswith("away_tms")]
+        if _stat_cols and len(_stats_df):
+            _idx = out.index
+            _tmp = out.reset_index(drop=True)
+            _tmp["match_id"] = [m.id for m in hist_matches]   # 与 hist 顺序一致(调用方保证)
+            _stats_right = _stats_df[_stat_cols].copy()
+            _stats_right["match_id"] = _stats_right.index
+            out = pd.merge(_tmp, _stats_right, on="match_id", how="left")
+            out = out.drop(columns=["match_id"])              # 仅作对齐键,不作特征
+            out = out.set_index(_idx)
     return out
