@@ -12,6 +12,7 @@ maybe_update(old, nm, source):
 
 from __future__ import annotations
 
+import datetime as _dt
 import json
 
 # 计数字段(与 NormalizedMatch 对齐;按 home/away 成对处理以支持主客场反转)
@@ -101,6 +102,7 @@ def maybe_update(
     if not lineage_available():
         # 未迁移:保持旧直写行为(不引入依赖;仍用对齐值防反转污染)
         _write_scores(old, aligned)
+        _touch(old, aligned)
         return "legacy_override"
 
     sources = _load_json(getattr(old, "sources_json", None), [])
@@ -121,12 +123,14 @@ def maybe_update(
         _write_scores(old, aligned)
         old.source = source
         old.reconciliation = "override"
+        _touch(old, aligned)
         return "override"
     if same:
         old.source = old.source or source
         opm = old.reconciliation
         if opm is None:
             old.reconciliation = "consensus"
+        _touch(old, aligned)
         return "consensus"
 
     # 值冲突:先记旧值快照(可溯),再决策
@@ -148,7 +152,38 @@ def maybe_update(
         old.source = source
         _write_scores(old, aligned)
         old.reconciliation = "override"
+        _touch(old, aligned)
         return "override"
     # 跨源冲突:保留旧值并标记(不静默覆盖历史)
     old.reconciliation = "conflict"
     return "conflict"
+
+def _touch(old, aligned=None):
+    """每次 recon 触达后记录 verified 时间与共识计数(审查 §六 建议)。
+
+    consensus = 与当前对齐比分一致的已见来源数 / 已见来源总数,存
+    source_consensus={"agree":n,"total":m,"consensus":"n/m"}。
+    """
+    try:
+        old.last_reconciled_at = _dt.datetime.now(_dt.timezone.utc)
+    except Exception:
+        pass
+    if aligned is None:
+        return
+    try:
+        m = 0
+        agree = 0
+        for f in _SCORE_FIELDS:
+            ov = getattr(old, f, None)
+            nv = aligned.get(f)
+            if ov is None or nv is None:
+                continue
+            m += 1
+            if ov == nv:
+                agree += 1
+        old.source_consensus = json.dumps(
+            {"agree": agree, "total": m, "consensus": f"{agree}/{m}"},
+            ensure_ascii=False,
+        )
+    except Exception:
+        pass

@@ -20,9 +20,10 @@ def upgrade() -> None:
     op.add_column("matches", sa.Column("source_scores_json", sa.Text(), nullable=True))
     op.add_column("matches", sa.Column("last_reconciled_at", sa.DateTime(), nullable=True))
     op.add_column("matches", sa.Column("reconciliation", sa.String(24), nullable=True))
+    op.add_column("matches", sa.Column("source_consensus", sa.Text(), nullable=True))
 
 
 def downgrade() -> None:
-    for col in ("reconciliation", "last_reconciled_at", "source_scores_json",
-                "sources_json", "source"):
+    for col in ("source_consensus", "reconciliation", "last_reconciled_at",
+                "source_scores_json", "sources_json", "source"):
         op.drop_column("matches", col)

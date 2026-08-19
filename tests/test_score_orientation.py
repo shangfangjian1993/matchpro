@@ -22,6 +22,7 @@ class _Old:
         self.source_scores_json = None
         self.reconciliation = None
         self.last_reconciled_at = None
+        self.source_consensus = None
 
 
 class _NM:

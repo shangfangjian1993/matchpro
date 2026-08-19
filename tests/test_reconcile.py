@@ -33,6 +33,7 @@ class _Old:
         self.source_scores_json = None
         self.reconciliation = None
         self.last_reconciled_at = None
+        self.source_consensus = None
 
 
 class _NM:
@@ -61,6 +62,11 @@ def test_consensus_when_same_score():
     assert reconcile.maybe_update(old, nm, "bzzoiro") == "consensus"
     assert json.loads(old.sources_json) == ["bzzoiro"]
     assert old.reconciliation == "consensus"
+    # 审查 §六建议:last_verified_at 与 source_consensus 已记录
+    assert old.last_reconciled_at is not None
+    assert old.source_consensus is not None
+    _cs = json.loads(old.source_consensus)
+    assert "/" in _cs["consensus"]
 
 
 def test_conflict_preserves_old_value():
