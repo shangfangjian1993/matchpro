@@ -142,23 +142,17 @@ def upsert_matches(matches: list[NormalizedMatch], source: str = "canonical") ->
             league = _get_or_create_league(
                 db, League, league_type, season_label=group[0].season_label
             )
-            # 已存在索引:(home, away) → [(date, Match)];匹配允许 ±1 天容差
-            # (不同源日期时区偏差:understat 用 UTC,fdco 用英国日期,个别场次差 1 天)
-            existing: dict[tuple, list] = {}
-            for m in Match.query.filter_by(league_id=league.id).all():
-                existing.setdefault((m.home_team, m.away_team), []).append(m)
+            # 唯一 Match Identity:统一 CanonicalMatchResolver(双向解析 +
+            # 方向 + ±1 天容差) —— A/B 与 B/A 永不产生第二行 canonical
+            from app.data.canonical.resolver import CanonicalMatchResolver
 
-            def _find_old(nm, _existing=existing) -> object | None:
-                cands = _existing.get((nm.home_team, nm.away_team))
-                if not cands:
-                    return None
-                target = nm.date.date()
-                best, best_delta = None, None
-                for c in cands:
-                    delta = abs((c.match_date.date() - target).days)
-                    if delta <= 1 and (best_delta is None or delta < best_delta):
-                        best, best_delta = c, delta
-                return best
+            _resolver = CanonicalMatchResolver().index_matches(
+                Match.query.filter_by(league_id=league.id).all()
+            )
+
+            def _find_old(nm):
+                _r = _resolver.resolve(nm.home_team, nm.away_team, nm.date)
+                return _r.match, _r.orientation
 
             for nm in group:
                 errs = validate(nm)
@@ -178,7 +172,7 @@ def upsert_matches(matches: list[NormalizedMatch], source: str = "canonical") ->
                 nm.home_team_id = _get_or_create_team(db, nm.home_team, team_type)
                 nm.away_team_id = _get_or_create_team(db, nm.away_team, team_type)
                 season = _season_label(nm.date)
-                old = _find_old(nm)
+                old, orientation = _find_old(nm)
                 if old is None:
                     m = Match(
                         league_id=league.id,
@@ -192,7 +186,7 @@ def upsert_matches(matches: list[NormalizedMatch], source: str = "canonical") ->
                     _apply_fields(m, nm)
                     db.session.add(m)
                     result["inserted"] += 1
-                    existing.setdefault((nm.home_team, nm.away_team), []).append(m)
+                    _resolver.index_matches([m])  # 新行并入 resolver,同批后续可定位
                     _upsert_team_season(db, nm.home_team_id, league.id, season)
                     _upsert_team_season(db, nm.away_team_id, league.id, season)
                     db.session.flush()  # 确保 m.id
@@ -222,9 +216,18 @@ def upsert_matches(matches: list[NormalizedMatch], source: str = "canonical") ->
                             # force_override 覆盖并记录来源/旧值快照(0014 后)
                             from app.data.canonical.reconcile import maybe_update
 
-                            maybe_update(old, nm, source, force_override=True)
+                            maybe_update(
+                                old,
+                                nm,
+                                source,
+                                orientation=orientation,
+                                force_override=True,
+                            )
                     # 指标字段只补空(不覆盖已存在的真实值)
-                    changed = _apply_fields(old, nm, merge_only=True) or changed
+                    changed = (
+                        _apply_fields(old, nm, merge_only=True, orientation=orientation)
+                        or changed
+                    )
                     _write_team_stats(db, old)
                     if changed:
                         result["updated"] += 1
@@ -234,13 +237,26 @@ def upsert_matches(matches: list[NormalizedMatch], source: str = "canonical") ->
     return result
 
 
-def _apply_fields(match, nm: NormalizedMatch, merge_only: bool = False) -> bool:
+def _apply_fields(
+    match, nm: NormalizedMatch, merge_only: bool = False, orientation: str = "SAME"
+) -> bool:
     """把清洗结果写入 ORM 对象;merge_only=True 只补空字段。返回是否有变更。"""
     changed = False
+    _pair_swap = {
+        "home_goals": "away_goals",
+        "away_goals": "home_goals",
+        "home_ht_goals": "away_ht_goals",
+        "away_ht_goals": "home_ht_goals",
+    }
     for field in _UPDATE_FIELDS:
         v = getattr(nm, field)
         if v is None:
             continue
+        # 来源方向 REVERSED 时,home/away 成对字段取对侧(防反向补空)
+        if orientation == "REVERSED" and field in _pair_swap:
+            v = getattr(nm, _pair_swap[field])
+            if v is None:
+                continue
         old_v = getattr(match, field)
         if merge_only and old_v is not None:
             continue

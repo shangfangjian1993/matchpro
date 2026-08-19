@@ -62,24 +62,26 @@ def test_consensus_when_same_score():
     assert reconcile.maybe_update(old, nm, "bzzoiro") == "consensus"
     assert json.loads(old.sources_json) == ["bzzoiro"]
     assert old.reconciliation == "consensus"
-    # 审查 §六建议:last_verified_at 与 source_consensus 已记录
+    # source_consensus = 来源级共识(agree_sources + ratio,非字段级)
     assert old.last_reconciled_at is not None
     assert old.source_consensus is not None
     _cs = json.loads(old.source_consensus)
-    assert "/" in _cs["consensus"]
+    assert "agree_sources" in _cs and _cs["agree"] >= 1
+    assert _cs["ratio"] is not None
 
 
 def test_conflict_preserves_old_value():
     from app.data.canonical import reconcile
 
     old = _Old()
-    old.source = "fdco"  # 已有来源
-    old.sources_json = json.dumps(["fdco"])
-    nm = _NM(3, 1, 2, 0)  # 冲突(home 2→3)
+    # 先真实记录 fdco 源(建立 canonical 2-1)
+    assert reconcile.maybe_update(old, _NM(2, 1, 1, 0), "fdco") == "consensus"
+    nm = _NM(3, 1, 2, 0)  # bzzoiro 冲突(home 2→3)
     assert reconcile.maybe_update(old, nm, "bzzoiro") == "conflict"
     assert old.home_goals == 2  # 保留旧值(不静默覆盖)
     snap = json.loads(old.source_scores_json)
-    assert snap["home_goals"]["fdco"] == 2  # 旧值已入快照
+    prof = snap.get("sources", {})
+    assert prof.get("fdco", {}).get("home_goals") == 2  # 旧值已入源快照
     assert "bzzoiro" in json.loads(old.sources_json)
 
 
@@ -102,8 +104,11 @@ def test_force_override_records_snapshot():
 
     old = _Old()
     old.reconciliation = None
+    # 先记录一次旧源(2-1 进快照),再占位升级
+    reconcile.maybe_update(old, _NM(2, 1, 1, 0), "legacy")
     nm = _NM(1, 1, 0, 1)
     assert reconcile.maybe_update(old, nm, "ingest", force_override=True) == "override"
     assert old.home_goals == 1  # 占位升级覆盖
     snap = json.loads(old.source_scores_json)
-    assert snap["home_goals"]["legacy"] == 2  # 旧值已快照
+    prof = snap.get("sources", {})
+    assert prof.get("legacy", {}).get("home_goals") == 2  # 旧值已快照

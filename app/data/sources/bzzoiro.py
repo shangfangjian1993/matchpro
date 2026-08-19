@@ -297,27 +297,21 @@ def merge_league(
             league = League(league_type=league_type_value, name=league_type_value)
             db.session.add(league)
             db.session.flush()
-        # 预建归一索引: (home_norm, away_norm) → [(Match, orientation)]
-        # 审查 f01d7e4 P0-1:主客对调容错同时记录方向 —— 否则 REVERSED 匹配
-        # 会用来源方向污染 canonical(Arsenal 2-1 Chelsea 被 B 队视角覆盖)。
-        norm_index = {}
-        for m in Match.query.filter_by(league_id=league.id).all():
-            hn, an = _norm(m.home_team), _norm(m.away_team)
-            norm_index.setdefault((hn, an), []).append((m, "SAME"))
-            norm_index.setdefault((an, hn), []).append((m, "REVERSED"))
+        # 唯一 Match Identity:统一 CanonicalMatchResolver(域单一入口,含
+        # 正则向与 ±1 天容差;REVERSED 匹配绝不反向污染 canonical 方向)
+        from app.data.canonical.reconcile import maybe_update
+        from app.data.canonical.resolver import CanonicalMatchResolver
+
+        _resolver = CanonicalMatchResolver().index_matches(
+            Match.query.filter_by(league_id=league.id).all()
+        )
 
         def _find(raw):
-            hn, an = _norm(raw["home_team"]), _norm(raw["away_team"])
             d0 = _dt.datetime.fromisoformat(
                 raw["event_date"].replace("Z", "+00:00")
             ).date()
-            for m, orientation in norm_index.get((hn, an), []):
-                if abs((m.match_date.date() - d0).days) <= 1:
-                    return m, orientation
-            for m, orientation in norm_index.get((an, hn), []):
-                if abs((m.match_date.date() - d0).days) <= 1:
-                    return m, orientation
-            return None, None
+            _r = _resolver.resolve(raw["home_team"], raw["away_team"], d0)
+            return _r.match, _r.orientation
 
         for r in rows:
             try:

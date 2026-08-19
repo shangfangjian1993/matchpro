@@ -57,12 +57,20 @@ def test_reversed_orientation_conflict_preserves_old():
     from app.data.canonical.reconcile import maybe_update
 
     old = _Old(hg=2, ag=1)
-    old.source = "fdco"
-    old.sources_json = json.dumps(["fdco"])
+    # 先真实记录 fdco 源
+    from app.data.canonical import reconcile as _rec
+
+    _rec.maybe_update(old, _NM(2, 1), "fdco", orientation="SAME")
+    assert old.home_goals == 2
     nm = _NM(hg=3, ag=0)  # 来源(不管方向)真实比分不同 → 冲突保留旧
     rec = maybe_update(old, nm, "bzzoiro", orientation="REVERSED")
     assert rec == "conflict"
     assert old.home_goals == 2 and old.away_goals == 1  # 保留旧值
+    # 来源级共识:旧值(fdco)保留、bzzoiro 记为 disagree
+    _cs = json.loads(old.source_consensus or "{}")
+    assert _cs.get("agree_sources") == ["fdco"] and "bzzoiro" in _cs.get(
+        "disagree_sources", []
+    )
 
 
 def test_multi_source_irreversible_pollution(monkeypatch):
