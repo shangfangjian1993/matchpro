@@ -251,60 +251,51 @@ def train_model(
             # 导致后续联赛在同一破损 session 上全部 FAIL)
             _exp_row = Experiment(
                 league_type=league_type.value,
-                    dataset_version=f"matches_{len(df)}",
-                    feature_version=str(getattr(model, "feature_version_", "unknown")),
-                    model_version=str(version),
-                    train_start=results.get("_t0"),
-                    train_end=_dt.now(tz=_tz.utc),
-                    hyperparameters_json=_json.dumps(
-                        getattr(model, "config", None).parameters
-                        if getattr(model, "config", None)
-                        else {},
-                        default=str,
-                    ),
-                    metrics_json=_json.dumps(
-                        {
-                            # 审查 P0-3:各指标口径必须可区分,不得把不同 holdout /
-                            # 不同样本量的指标混成一个"模型分数"
-                            "poisson_loss": float(_ev.get("poisson_loss", 0.0) or 0.0),
-                            "accuracy": float(
-                                _acc.get(
-                                    "exact_accuracy", _ev.get("exact_accuracy", 0.0)
-                                )
-                                or 0.0
-                            ),
-                            "log_loss": float(
-                                _prob_metrics.get("log_loss", 0.0) or 0.0
-                            ),
-                            "brier": float(_prob_metrics.get("brier", 0.0) or 0.0),
-                            "rps": float(_prob_metrics.get("rps", 0.0) or 0.0),
-                            "feature_count": int(results.get("feature_count", 0) or 0),
-                            "data_rows": len(df),
-                            # ---- 口径标注(P0-3)----
-                            "metric_sources": "poisson_loss=regression_holdout;log_loss/brier/rps=probability_holdout;cv=time_cv",
-                            "test_window": _test_window or None,
-                            "split": "date-grouped-80-20",
-                            "prob_holdout_n": int(_prob_metrics.get("n", 0) or 0),
-                            "time_cv": (
-                                {
-                                    "mean": float(
-                                        results["cross_validation"]["cv_mean"]
-                                    ),
-                                    "std": float(results["cross_validation"]["cv_std"]),
-                                    "folds": int(
-                                        results["cross_validation"]["cv_folds"]
-                                    ),
-                                }
-                                if isinstance(results.get("cross_validation"), dict)
-                                and results["cross_validation"].get("cv_mean")
-                                is not None
-                                else None
-                            ),
-                        },
-                        default=str,
-                    ),
-                    data_hash=_hl.sha256(str(len(df)).encode()).hexdigest()[:16],
-                )
+                dataset_version=f"matches_{len(df)}",
+                feature_version=str(getattr(model, "feature_version_", "unknown")),
+                model_version=str(version),
+                train_start=results.get("_t0"),
+                train_end=_dt.now(tz=_tz.utc),
+                hyperparameters_json=_json.dumps(
+                    getattr(model, "config", None).parameters
+                    if getattr(model, "config", None)
+                    else {},
+                    default=str,
+                ),
+                metrics_json=_json.dumps(
+                    {
+                        # 审查 P0-3:各指标口径必须可区分,不得把不同 holdout /
+                        # 不同样本量的指标混成一个"模型分数"
+                        "poisson_loss": float(_ev.get("poisson_loss", 0.0) or 0.0),
+                        "accuracy": float(
+                            _acc.get("exact_accuracy", _ev.get("exact_accuracy", 0.0))
+                            or 0.0
+                        ),
+                        "log_loss": float(_prob_metrics.get("log_loss", 0.0) or 0.0),
+                        "brier": float(_prob_metrics.get("brier", 0.0) or 0.0),
+                        "rps": float(_prob_metrics.get("rps", 0.0) or 0.0),
+                        "feature_count": int(results.get("feature_count", 0) or 0),
+                        "data_rows": len(df),
+                        # ---- 口径标注(P0-3)----
+                        "metric_sources": "poisson_loss=regression_holdout;log_loss/brier/rps=probability_holdout;cv=time_cv",
+                        "test_window": _test_window or None,
+                        "split": "date-grouped-80-20",
+                        "prob_holdout_n": int(_prob_metrics.get("n", 0) or 0),
+                        "time_cv": (
+                            {
+                                "mean": float(results["cross_validation"]["cv_mean"]),
+                                "std": float(results["cross_validation"]["cv_std"]),
+                                "folds": int(results["cross_validation"]["cv_folds"]),
+                            }
+                            if isinstance(results.get("cross_validation"), dict)
+                            and results["cross_validation"].get("cv_mean") is not None
+                            else None
+                        ),
+                    },
+                    default=str,
+                ),
+                data_hash=_hl.sha256(str(len(df)).encode()).hexdigest()[:16],
+            )
             # 写锁退避重试:与采集并发写 SQLite 时 'database is locked' 属暂时,
             # rollback 后重新 add(旧 pending 已 detach)再 commit;仍失败 → 仅告警,
             # 不影响训练结果判定(此前 commit 撞锁未 rollback 连锁污染全局 session)
