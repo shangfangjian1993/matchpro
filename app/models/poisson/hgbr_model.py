@@ -214,10 +214,12 @@ class PoissonLossHGBR(BaseEstimator, RegressorMixin):
         """
         计算特征重要性(审查 A70A601 §22)。
 
-        HGBR 无原生 feature_importances_ —— 不再返回空"unavailable",改用
-        permutation importance(对代表性样本,负 Poisson 偏差 score):
-        contribution = 打乱单列后指标下降量均值(值越大 = 该列越重要)。
-        返回 Series(index=特征名);极端小样本/失败时仍返回空(标注 unavailable)。
+        审查 §22 推荐 SHAP;HGBR 无原生 feature_importances_ 时按序:
+          1) shap.TreeExplainer(sklearn HistGB 支持时,快);
+          2) shap.PermutationExplainer(predict 兼容兜底);
+          3) sklearn permutation importance(负 Poisson 偏差)最终兜底。
+        均取 |贡献| 均值(值越大 = 该列越重要)。返回 Series(index=特征名);
+        极端小样本/失败时返回空(标注 unavailable)。
         """
         if self.model is None:
             return pd.Series()
@@ -227,6 +229,46 @@ class PoissonLossHGBR(BaseEstimator, RegressorMixin):
                 return pd.Series(
                     self.model.feature_importances_, index=self.model.feature_names_in_
                 )
+            # 代表性样本控制计算量(全量混洗开销高;可解释性不受影响)
+            _n = min(200, len(X) if X is not None else 0)
+            if _n == 0:
+                return pd.Series(dtype=float, name="unavailable")
+            _X = X.iloc[:_n] if hasattr(X, "iloc") else X[:_n]
+            _y = y.iloc[:_n] if hasattr(y, "iloc") else y[:_n]
+
+            # 1/2) SHAP(审查 §22 推荐:TreeExplainer 优先)
+            try:
+                import shap
+
+                _sv = None
+                _names = getattr(self.model, "feature_names_in_", None)
+                try:
+                    _explainer = shap.TreeExplainer(self.model)
+                    _sv = _explainer.shap_values(_X)
+                    self.importance_method_ = "shap_tree"
+                except Exception:
+                    _sv = None
+                if _sv is None:
+                    try:
+                        _explainer = shap.PermutationExplainer(
+                            self.model.predict,
+                            _X,
+                            max_evals=min(80, 2 * _X.shape[1]),
+                            progress_bar=False,
+                        )
+                        _sv = _explainer(_X).values
+                        self.importance_method_ = "shap_permutation"
+                    except Exception:
+                        _sv = None
+                if _sv is not None:
+                    _abs = np.abs(np.asarray(_sv, dtype=float)).mean(axis=0)
+                    return pd.Series(
+                        _abs, index=_names if _names is not None else range(len(_abs))
+                    )
+            except Exception:
+                pass
+
+            # 3) permutation importance 兜底
             from sklearn.inspection import permutation_importance
 
             # 代表性样本控制计算量(全量混洗开销高;可解释性不受影响)
@@ -245,7 +287,10 @@ class PoissonLossHGBR(BaseEstimator, RegressorMixin):
                 n_jobs=-1,
             )
             self.importance_method_ = "permutation"
-            return pd.Series(_pi.importances_mean, index=self.model.feature_names_in_)
+            _names2 = getattr(self.model, "feature_names_in_", None) or range(
+                len(_pi.importances_mean)
+            )
+            return pd.Series(_pi.importances_mean, index=_names2)
         except Exception:
             return pd.Series(dtype=float, name="unavailable")
 
