@@ -396,5 +396,11 @@ class PredictionEngine:
             "degraded": _degraded,
             "degraded_components": _degraded_components,
             "failure_codes": _failure_codes,
+            # —— Ablation 诊断字段(零行为影响;可复现链路上携带成员分解)——
+            "members": _members,                # {hgbr,dc,nb,elo,bayes} 1X2(成员原始)
+            "gbm_probs": _gbm_probs,            # GBM 1X2(可 None)
+            "member_weights": _w,               # 成员权重(含 gbm 键)
+            "tau": _tau,
+            "phi": _phi,
         }
         return result

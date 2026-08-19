@@ -67,6 +67,10 @@ class ContextBuilder:
         ).all()
         if match_dt is not None:
             history = [m for m in history if pd.Timestamp(m.match_date) < match_dt]
+        # 审查 ac2196b 关联修复:默认行序非时间序(rowid 受迁移/批量导入打乱),
+        # 必须显式按比赛时间升序 —— 否则 hist_limit 截取到任意错乱窗口(曾取到
+        # 1992 年段),既有时序泄漏风险(窗口含未来场次),又令球队定位失败。
+        history.sort(key=lambda x: pd.Timestamp(x.match_date))
         if hist_limit is not None and len(history) > hist_limit:
             history = history[-hist_limit:]
         hist_df = matches_to_dataframe(
