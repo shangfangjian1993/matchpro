@@ -4,6 +4,7 @@
 单一职责;模型超参(model.py)、YAML 加载(loader.py)、特征开关
 (features.py)各自独立,__init__.py 统一 re-export 保持旧 import 兼容。
 """
+
 from __future__ import annotations
 
 from enum import Enum

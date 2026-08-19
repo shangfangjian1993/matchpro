@@ -195,3 +195,18 @@ def test_stats_features_family_meta():
     from app.features.stats_features import REQUIRED_HISTORY
 
     assert isinstance(REQUIRED_HISTORY, int) and REQUIRED_HISTORY > 0
+
+
+def test_overall_rolling_windows():
+    """审查 A70A601 P1-8:overall(全历史)滚动与 side 滚动并存。"""
+    from app.features.stats_features import _roll
+
+    fm1 = _FakeMatch(1, "AA", "BB")
+    sA = _FakeStats(fouls=6, tackles=40, offsides=1)
+    sB = _FakeStats(fouls=4, tackles=30, offsides=2)
+    mapping = _roll([fm1], {1: {"home": sA, "away": sB}}, windows=(5, 3))
+    out = mapping[1]
+    assert "home_tms_fouls_overall_5" in out
+    assert "away_tms_fouls_overall_5" in out
+    assert "home_tms_fouls_overall_3" in out
+    assert all(k.startswith(("home_tms_", "away_tms_")) for k in out)

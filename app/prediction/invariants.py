@@ -117,13 +117,18 @@ def validate_prediction(result: dict) -> list[str]:
         if matrix is not None:
             vios += check_matrix(matrix)
             vios += check_matrix_marginal(matrix, probs)
-        xg = result.get("expected_xg")
-        if xg and len(xg) == 2:
+        # 审查 A70A601 P0-2/3:参照必须是**模型层 fused λ**(独立于矩阵),
+        # 而非 expected_xg(矩阵自身期望)——否则"矩阵期望 == 矩阵期望"永远
+        # 通过,变成自检。这里真正检测"λ → 最终矩阵"的期望一致性:
+        # 若未来新增矩阵成员却忘记计入 fused λ,会在此被抓住。
+        ref = result.get("_internal", {})
+        lam_h, lam_a = ref.get("home_lambda"), ref.get("away_lambda")
+        if lam_h is not None and lam_a is not None:
             vios += check_xg(
                 matrix if matrix is not None else np.zeros((10, 10)),
-                xg[0],
-                xg[1],
-                tol=0.15,
+                lam_h,
+                lam_a,
+                tol=0.25,  # 校准+IPF 会平移矩阵边缘,期望偏差 ≤0.25 属正常
             )
     vios += check_top_scores(result.get("top_scores") or [])
     return vios

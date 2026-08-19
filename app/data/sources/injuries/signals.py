@@ -14,7 +14,7 @@
 summary 标注 position_missing;付费 lineups 数据到位后自动启用真实位置加权。
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 # 位置 → 权重(文档 §5.2 Phase A;position 缺失时按中场基准)
 POSITION_WEIGHTS = {
@@ -103,7 +103,7 @@ def _core_mult(player: dict, match_day: str) -> float:
     try:
         inj_dt = datetime.fromisoformat(str(d).replace("Z", ""))
         day_dt = datetime.fromisoformat(
-            str(match_day or datetime.now(tz=datetime.timezone.utc).date())
+            str(match_day or datetime.now(tz=timezone.utc).date())
         )
         days = (day_dt - inj_dt).days
         return CORE_MULT if days >= CORE_DAYS else 1.0

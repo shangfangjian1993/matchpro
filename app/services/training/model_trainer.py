@@ -3,7 +3,7 @@
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 import numpy as np
@@ -165,7 +165,7 @@ class ModelTrainer:
         # 保存训练历史
         self.training_history.append(
             {
-                "timestamp": datetime.now(tz=datetime.timezone.utc),
+                "timestamp": datetime.now(tz=timezone.utc),
                 "league_type": league_type.value,
                 "data_shape": data.shape,
                 "training_results": training_results,

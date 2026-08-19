@@ -239,3 +239,44 @@ def version() -> str:
     )
     impl = inspect.getsource(compute_attack_defense)
     return hashlib.sha256((spec + "|" + impl).encode()).hexdigest()[:12]
+
+
+def compute_opponent_adjusted_xg(prepared: pd.DataFrame, long) -> pd.DataFrame:
+    """审查 A70A601 §20:Opponent-adjusted xG(对手强度修正)。
+
+    home_xg_adj = 主队进攻强度 × (客队失 xG 强度 / 联赛平均失 xG)
+    away_xg_adj = 客队进攻强度 × (主队失 xG 强度 / 联赛平均失 xG)
+
+    强度 = 该队历史 own_xg / opp_xg 的 expanding 均值(shift1,防泄漏)。
+    仅当 prepared 含 home_xg/away_xg(有 xG 数据源)时启用;否则原样返回
+    (列缺失留空,模型自动跳过)。clip [0.3, 3] 防极端。
+    """
+    if "home_xg" not in prepared.columns or "away_xg" not in prepared.columns:
+        return prepared
+    d = prepared.reset_index(drop=True)
+    from app.features.rolling import build_long_table, expanding_prior
+
+    long2, _ = build_long_table(d)
+    idx = long2["index"].values
+    hmask = (long2["side"] == "home").values
+    long2["own_xg"] = np.where(
+        hmask, d["home_xg"].values[idx], d["away_xg"].values[idx]
+    )
+    long2["opp_xg"] = np.where(
+        hmask, d["away_xg"].values[idx], d["home_xg"].values[idx]
+    )
+    att = expanding_prior(long2, "own_xg", "att")  # 该队进攻强度(shift1)
+    dfn = expanding_prior(long2, "opp_xg", "def")  # 该队防守强度(对方 xG,shift1)
+    lg_att, lg_def = float(np.nanmean(att)), float(np.nanmean(dfn))
+    if not (lg_att > 0 and lg_def > 0):
+        return prepared
+    long2["att_v"] = att
+    long2["def_v"] = dfn
+    home = long2[long2["side"] == "home"].set_index("index")
+    away = long2[long2["side"] == "away"].set_index("index")
+    h_adj = (home["att_v"] * (away["def_v"].values / lg_def)).clip(0.3, 3.0)
+    a_adj = (away["att_v"] * (home["def_v"].values / lg_att)).clip(0.3, 3.0)
+    out = prepared.reset_index(drop=True)
+    out["home_xg_opp_adj"] = h_adj.values
+    out["away_xg_opp_adj"] = a_adj.values
+    return out

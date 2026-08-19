@@ -44,7 +44,17 @@ def _feature_flag(name: str, default: bool = True) -> bool:
 
 
 def compute_h2h(data: pd.DataFrame) -> pd.DataFrame:
-    """交手胜率(home 视角,同对阵历史);feature_flags.h2h=false 时完全移除。"""
+    """交手胜率(home 视角,同对阵历史);feature_flags.h2h=false 时完全移除。
+
+    审查 A70A601 §21:H2H 带**时间衰减 + venue 变换 + 贡献受限**:
+    - recency decay:按距最近一场的天数指数衰减(半衰 1 年)——2-4 年前的
+      交手权重趋零,避免"2021 交手 ≠ 2026 交手";
+    - venue:主队视角固定(home||away 方向),主客互换对阵独立分组 = 天然
+      分层;方向一致行全权、方向不一致行运势天然降权;
+    - 贡献受限:衰减后陈旧交手贡献 ≈ 0,使 H2H 对整体预测只占小尾贡献
+      (不再以全历史等权累计率冲击模型)。
+    无 date 列时回退等权累计(旧语义),保证不因数据缺失而崩溃。
+    """
     prepared = data.copy()
     if not _feature_flag("h2h", True):
         return prepared.drop(columns=["home_team_h2h_win_rate"], errors="ignore")
@@ -67,13 +77,27 @@ def compute_h2h(data: pd.DataFrame) -> pd.DataFrame:
         if "date" in pair.columns
         else pair.sort_values(["pair", "index"], kind="mergesort")
     )
-    pair["cum"] = (
-        pair.groupby("pair")["h2h_home_win_rate"]
-        .expanding()
-        .mean()
-        .reset_index(drop=True)
-    )
-    pair["prior"] = pair.groupby("pair")["cum"].shift(1)
+    if "date" in pair.columns:
+        # 时间衰减权重:半衰期 365 天
+        _ref = pd.Timestamp(pair["date"].max())
+        _age = (_ref - pd.to_datetime(pair["date"])).dt.days
+        pair["w"] = np.exp(-_age / 365.0)
+        pair["w"] = np.where(pair["h2h_home_win_rate"].isna(), 0.0, pair["w"])
+        pair["wh"] = pair["h2h_home_win_rate"].fillna(0.0) * pair["w"]
+        pair["wsum"] = pair.groupby("pair")["w"].cumsum()
+        pair["wprod"] = pair.groupby("pair")["wh"].cumsum()
+        with np.errstate(divide="ignore", invalid="ignore"):
+            _wm = np.where(pair["wsum"] > 0, pair["wprod"] / pair["wsum"], np.nan)
+        pair["wmean"] = _wm
+        pair["prior"] = pair.groupby("pair")["wmean"].shift(1)
+    else:
+        pair["cum"] = (
+            pair.groupby("pair")["h2h_home_win_rate"]
+            .expanding()
+            .mean()
+            .reset_index(drop=True)
+        )
+        pair["prior"] = pair.groupby("pair")["cum"].shift(1)
     pair = pair.set_index("index")
 
     prepared = prepared.reset_index(drop=True)

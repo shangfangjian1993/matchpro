@@ -11,7 +11,7 @@
 
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -86,7 +86,7 @@ def main() -> int:
             nat_def.update(h, a, hg, ag, home_adv=0.0, is_national=True, mode="defense")
 
         # 3. 写回 teams
-        now = datetime.now(tz=datetime.timezone.utc)
+        now = datetime.now(tz=timezone.utc)
         updated = 0
         for t in Team.query.all():
             if t.team_type == "national":

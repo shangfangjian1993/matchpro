@@ -341,41 +341,44 @@ class PredictionEngine:
         result["prediction_status"] = "degraded" if _degraded else "ok"
 
         # ══ P0-3:二次 IPF —— 校准后 1X2 回写矩阵,保证矩阵边缘 == 最终 1X2 ══
-        _final_matrix = _m2 if _m2 is not None else _fused_matrix
-        if _m2 is not None:
-            try:
-                from app.prediction.regime import ipf_to_target
+        # 审查 A70A601 P0-1:无论 Prior Blend 是否可用(m2 为 None 时降级为
+        # 原始 fused_matrix),**都必须**执行最终 IPF。否则 blend 不可用场景
+        # 下矩阵停留在旧矩阵而 1X2 已被 Calibration 修改 → 矩阵边缘 ≠ 最终 1X2,
+        # 违反"Final Matrix 为唯一输出源"契约。
+        _base_for_ipf = _m2 if _m2 is not None else _fused_matrix
+        try:
+            from app.prediction.regime import ipf_to_target
 
-                _final_matrix = ipf_to_target(
-                    np.asarray(_m2, dtype=float),
-                    (
-                        result["home_win_probability"],
-                        result["draw_probability"],
-                        result["away_win_probability"],
-                    ),
-                )
-                _check_matrix(_final_matrix)
-                _final_matrix = _final_matrix.tolist()
-            except CorePredictionError:
-                raise
-            except Exception as _ie:
-                raise CorePredictionError(
-                    "SCORE_MATRIX_FAILURE", f"二次 IPF 失败: {_ie}"
-                ) from _ie
-            # 从最终矩阵统一导出(P0-3:唯一输出源)
-            try:
-                from app.models.ensemble import score_outputs as _so
+            _final_matrix = ipf_to_target(
+                np.asarray(_base_for_ipf, dtype=float),
+                (
+                    result["home_win_probability"],
+                    result["draw_probability"],
+                    result["away_win_probability"],
+                ),
+            )
+            _check_matrix(_final_matrix)
+            _final_matrix = _final_matrix.tolist()
+        except CorePredictionError:
+            raise
+        except Exception as _ie:
+            raise CorePredictionError(
+                "SCORE_MATRIX_FAILURE", f"最终 IPF 失败: {_ie}"
+            ) from _ie
+        # 从最终矩阵统一导出(P0-3:唯一输出源,与 blend 可用性无关)
+        try:
+            from app.models.ensemble import score_outputs as _so
 
-                _so2 = _so(np.asarray(_final_matrix, dtype=float))
-                result["top_scores"] = _so2["top_scores"]
-                result["over_2_5"] = _so2["over_2_5"]
-                result["under_2_5"] = _so2["under_2_5"]
-                result["btts"] = _so2["btts"]
-                result["expected_xg"] = _so2["expected_xg"]
-            except Exception as _se:
-                raise CorePredictionError(
-                    "SCORE_MATRIX_FAILURE", f"最终矩阵导出失败: {_se}"
-                ) from _se
+            _so2 = _so(np.asarray(_final_matrix, dtype=float))
+            result["top_scores"] = _so2["top_scores"]
+            result["over_2_5"] = _so2["over_2_5"]
+            result["under_2_5"] = _so2["under_2_5"]
+            result["btts"] = _so2["btts"]
+            result["expected_xg"] = _so2["expected_xg"]
+        except Exception as _se:
+            raise CorePredictionError(
+                "SCORE_MATRIX_FAILURE", f"最终矩阵导出失败: {_se}"
+            ) from _se
 
         result["_internal"] = {
             "home_lambda": home_lambda,

@@ -107,12 +107,14 @@ def detect(
         return h / n, d / n, goals, low
 
     def _dispersion(ms):
-        """球队 latent strength 分散度(审查十 P1-1)。
+        """球队 latent strength 分散度(审查十 P1-1 + A70A601 P1-5)。
 
         以**净胜球均值**作为 latent strength 近似(攻击-防守综合,
         含进失球两端信息;系统已有 ELO/xG 时可在特征层替换)。
         strength_i = mean(该队近 5 场进球) - mean(该队近 5 场失球)
         dispersion = std(全队 strength) —— 这才是"强弱分化程度"。
+        A70A601 P1-5:实现与注释统一 —— 取该队**最近 5 场**(ms 已按日期
+        倒序,per_team 追加顺序即时间顺序,尾部为最近 5 次出场)。
         """
         import collections
 
@@ -123,9 +125,10 @@ def detect(
             per_team[m.away_team].append((ga, gh))
         strengths = []
         for v in per_team.values():
-            if len(v) >= 3:
-                gf = sum(x[0] for x in v) / len(v)
-                ga2 = sum(x[1] for x in v) / len(v)
+            v5 = v[-5:]  # 最近 5 场(recent-5,与注释一致)
+            if len(v5) >= 3:
+                gf = sum(x[0] for x in v5) / len(v5)
+                ga2 = sum(x[1] for x in v5) / len(v5)
                 strengths.append(gf - ga2)
         if len(strengths) < 6:
             return None
@@ -151,19 +154,23 @@ def detect(
     _c_str = (max(0.0, 1.0 - (disp_ratio or 1.0))) / 0.25  # 强度压缩 ±25% 满量程
     _comps = [_c_draw, _c_goal, _c_home, _c_low, _c_str]
     _capped = [min(x, 0.35) for x in _comps]
-    shift = float(
-        np.clip(
-            0.25 * _capped[0]
-            + 0.25 * _capped[1]
-            + 0.15 * _capped[2]
-            + 0.15 * _capped[3]
-            + 0.20 * _capped[4],
-            0.0,
-            1.0,
-        )
-    )
     # Calibration Drift(尽力而为:production 快照的近期 ECE)
     calib = _calibration_drift(league_id, cutoff_dt)
+    # 审查 A70A601 P1-3:Calibration Drift **进入 shift_score 决策**(而非
+    # 仅作诊断字段)。drift=ECE 变化 ±5pp 满量程,converged 时与原 5 维同权
+    # (原权重×0.85 + calib×0.15);drift 缺失(无快照)时退回原 5 维权重。
+    _w5 = [0.25, 0.25, 0.15, 0.15, 0.20]
+    if calib and calib.get("drift", 0.0) > 0:
+        _c_cal = min(abs(calib["drift"]) / 0.05, 0.35)
+        shift = float(
+            np.clip(
+                sum(w * cp for w, cp in zip(_w5, _capped)) * 0.85 + 0.15 * _c_cal,
+                0.0,
+                1.0,
+            )
+        )
+    else:
+        shift = float(np.clip(sum(w * cp for w, cp in zip(_w5, _capped)), 0.0, 1.0))
 
     if shift < 0.15 and not (disp_ratio is not None and disp_ratio < 0.8):
         regime = "NORMAL"

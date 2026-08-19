@@ -6,6 +6,7 @@
   的 leagues 段覆盖(§1.1;YAML 为单一事实源时删 Python 默认)。
 联赛类型见 league.py,目录路径见 app.core.paths(禁止重复推导)。
 """
+
 from __future__ import annotations
 
 import os
@@ -53,6 +54,7 @@ class MultiLeagueConfig:
     def _load_yaml_overrides(self):
         """configs/models.yaml 覆盖(§1.1 YAML 配置化;文件缺失/损坏时用 Python 默认)。"""
         from app.core.config.loader import load_yaml
+
         return load_yaml("models.yaml")
 
     def _init_configs(self):
@@ -77,70 +79,155 @@ class MultiLeagueConfig:
         )
         _yb = _yaml_cfg.get("base_model_config") or {}
         if _yb:
-            self.base_model_config.model_type = _yb.get("model_type", self.base_model_config.model_type)
-            self.base_model_config.version = _yb.get("version", self.base_model_config.version)
+            self.base_model_config.model_type = _yb.get(
+                "model_type", self.base_model_config.model_type
+            )
+            self.base_model_config.version = _yb.get(
+                "version", self.base_model_config.version
+            )
             if _yb.get("parameters"):
                 self.base_model_config.parameters.update(_yb["parameters"])
 
         # 联赛特定配置
         self.league_configs = {
             LeagueType.PREMIER_LEAGUE: ModelConfig(
-                model_type="HGBR", league_type=LeagueType.PREMIER_LEAGUE, version="1.0.0",
-                parameters={"loss": "poisson", "learning_rate": 0.06, "max_depth": 7,
-                            "min_samples_leaf": 8, "max_iter": 300, "early_stopping_rounds": 25,
-                            "validation_fraction": 0.15, "random_state": 42},
+                model_type="HGBR",
+                league_type=LeagueType.PREMIER_LEAGUE,
+                version="1.0.0",
+                parameters={
+                    "loss": "poisson",
+                    "learning_rate": 0.06,
+                    "max_depth": 7,
+                    "min_samples_leaf": 8,
+                    "max_iter": 300,
+                    "early_stopping_rounds": 25,
+                    "validation_fraction": 0.15,
+                    "random_state": 42,
+                },
             ),
             LeagueType.LA_LIGA: ModelConfig(
-                model_type="HGBR", league_type=LeagueType.LA_LIGA, version="1.0.0",
-                parameters={"loss": "poisson", "learning_rate": 0.06, "max_depth": 6,
-                            "min_samples_leaf": 9, "max_iter": 300, "early_stopping_rounds": 25,
-                            "validation_fraction": 0.15, "random_state": 42},
+                model_type="HGBR",
+                league_type=LeagueType.LA_LIGA,
+                version="1.0.0",
+                parameters={
+                    "loss": "poisson",
+                    "learning_rate": 0.06,
+                    "max_depth": 6,
+                    "min_samples_leaf": 9,
+                    "max_iter": 300,
+                    "early_stopping_rounds": 25,
+                    "validation_fraction": 0.15,
+                    "random_state": 42,
+                },
             ),
             LeagueType.BUNDESLIGA: ModelConfig(
-                model_type="HGBR", league_type=LeagueType.BUNDESLIGA, version="1.0.0",
-                parameters={"loss": "poisson", "learning_rate": 0.06, "max_depth": 8,
-                            "min_samples_leaf": 6, "max_iter": 300, "early_stopping_rounds": 25,
-                            "validation_fraction": 0.15, "random_state": 42},
+                model_type="HGBR",
+                league_type=LeagueType.BUNDESLIGA,
+                version="1.0.0",
+                parameters={
+                    "loss": "poisson",
+                    "learning_rate": 0.06,
+                    "max_depth": 8,
+                    "min_samples_leaf": 6,
+                    "max_iter": 300,
+                    "early_stopping_rounds": 25,
+                    "validation_fraction": 0.15,
+                    "random_state": 42,
+                },
             ),
             LeagueType.LIGUE_1: ModelConfig(
-                model_type="HGBR", league_type=LeagueType.LIGUE_1, version="1.0.0",
-                parameters={"loss": "poisson", "learning_rate": 0.06, "max_depth": 6,
-                            "min_samples_leaf": 10, "max_iter": 300, "early_stopping_rounds": 25,
-                            "validation_fraction": 0.15, "random_state": 42},
+                model_type="HGBR",
+                league_type=LeagueType.LIGUE_1,
+                version="1.0.0",
+                parameters={
+                    "loss": "poisson",
+                    "learning_rate": 0.06,
+                    "max_depth": 6,
+                    "min_samples_leaf": 10,
+                    "max_iter": 300,
+                    "early_stopping_rounds": 25,
+                    "validation_fraction": 0.15,
+                    "random_state": 42,
+                },
             ),
             LeagueType.SERIE_A: ModelConfig(
-                model_type="HGBR", league_type=LeagueType.SERIE_A, version="1.0.0",
-                parameters={"loss": "poisson", "learning_rate": 0.06, "max_depth": 7,
-                            "min_samples_leaf": 8, "max_iter": 300, "early_stopping_rounds": 25,
-                            "validation_fraction": 0.15, "random_state": 42},
+                model_type="HGBR",
+                league_type=LeagueType.SERIE_A,
+                version="1.0.0",
+                parameters={
+                    "loss": "poisson",
+                    "learning_rate": 0.06,
+                    "max_depth": 7,
+                    "min_samples_leaf": 8,
+                    "max_iter": 300,
+                    "early_stopping_rounds": 25,
+                    "validation_fraction": 0.15,
+                    "random_state": 42,
+                },
             ),
         }
 
         # 赛事模型配置
         self.tournament_configs = {
             LeagueType.WORLD_CUP: ModelConfig(
-                model_type="HGBR", league_type=LeagueType.WORLD_CUP, version="1.0.0",
-                parameters={"loss": "poisson", "learning_rate": 0.06, "max_depth": 8,
-                            "min_samples_leaf": 5, "max_iter": 300, "early_stopping_rounds": 25,
-                            "validation_fraction": 0.15, "random_state": 42},
+                model_type="HGBR",
+                league_type=LeagueType.WORLD_CUP,
+                version="1.0.0",
+                parameters={
+                    "loss": "poisson",
+                    "learning_rate": 0.06,
+                    "max_depth": 8,
+                    "min_samples_leaf": 5,
+                    "max_iter": 300,
+                    "early_stopping_rounds": 25,
+                    "validation_fraction": 0.15,
+                    "random_state": 42,
+                },
             ),
             LeagueType.EUROPEAN_CHAMPIONSHIP: ModelConfig(
-                model_type="HGBR", league_type=LeagueType.EUROPEAN_CHAMPIONSHIP, version="1.0.0",
-                parameters={"loss": "poisson", "learning_rate": 0.06, "max_depth": 7,
-                            "min_samples_leaf": 6, "max_iter": 300, "early_stopping_rounds": 25,
-                            "validation_fraction": 0.15, "random_state": 42},
+                model_type="HGBR",
+                league_type=LeagueType.EUROPEAN_CHAMPIONSHIP,
+                version="1.0.0",
+                parameters={
+                    "loss": "poisson",
+                    "learning_rate": 0.06,
+                    "max_depth": 7,
+                    "min_samples_leaf": 6,
+                    "max_iter": 300,
+                    "early_stopping_rounds": 25,
+                    "validation_fraction": 0.15,
+                    "random_state": 42,
+                },
             ),
             LeagueType.CHAMPIONS_LEAGUE: ModelConfig(
-                model_type="HGBR", league_type=LeagueType.CHAMPIONS_LEAGUE, version="1.0.0",
-                parameters={"loss": "poisson", "learning_rate": 0.06, "max_depth": 7,
-                            "min_samples_leaf": 7, "max_iter": 300, "early_stopping_rounds": 25,
-                            "validation_fraction": 0.15, "random_state": 42},
+                model_type="HGBR",
+                league_type=LeagueType.CHAMPIONS_LEAGUE,
+                version="1.0.0",
+                parameters={
+                    "loss": "poisson",
+                    "learning_rate": 0.06,
+                    "max_depth": 7,
+                    "min_samples_leaf": 7,
+                    "max_iter": 300,
+                    "early_stopping_rounds": 25,
+                    "validation_fraction": 0.15,
+                    "random_state": 42,
+                },
             ),
             LeagueType.EUROPA_LEAGUE: ModelConfig(
-                model_type="HGBR", league_type=LeagueType.EUROPA_LEAGUE, version="1.0.0",
-                parameters={"loss": "poisson", "learning_rate": 0.06, "max_depth": 6,
-                            "min_samples_leaf": 9, "max_iter": 300, "early_stopping_rounds": 25,
-                            "validation_fraction": 0.15, "random_state": 42},
+                model_type="HGBR",
+                league_type=LeagueType.EUROPA_LEAGUE,
+                version="1.0.0",
+                parameters={
+                    "loss": "poisson",
+                    "learning_rate": 0.06,
+                    "max_depth": 6,
+                    "min_samples_leaf": 9,
+                    "max_iter": 300,
+                    "early_stopping_rounds": 25,
+                    "validation_fraction": 0.15,
+                    "random_state": 42,
+                },
             ),
         }
 

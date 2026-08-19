@@ -10,7 +10,6 @@ import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.metrics import make_scorer, mean_absolute_error, mean_squared_error
-from sklearn.model_selection import TimeSeriesSplit, train_test_split
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -141,34 +140,16 @@ class PoissonLossHGBR(BaseEstimator, RegressorMixin):
         # 验证数据
         X, y = self._validate_data(X, y)
 
-        # 划分训练集和验证集（shuffle=False 按时间顺序切分;数据过少时不切分）
-        if self.validation_fraction > 0 and len(X) >= 10:
-            X_train, X_val, y_train, y_val = train_test_split(
-                X,
-                y,
-                test_size=self.validation_fraction,
-                random_state=self.random_state,
-                shuffle=False,
-            )
-            w_train = None
-            if sample_weight is not None:
-                _split = int(len(X) * (1 - self.validation_fraction))
-                w_train = np.asarray(sample_weight, dtype=float)[:_split]
-        else:
-            X_train, X_val, y_train, y_val = X, None, y, None
-            w_train = (
-                np.asarray(sample_weight, dtype=float)
-                if sample_weight is not None
-                else None
-            )
+        # 审查 A70A601 P1-7:移除外层 train_test_split 嵌套切分。
+        # 旧实现:外层按时间切 15% 验证 + HGBR 内部再按 validation_fraction
+        # 随机切验证做早停 → 有效训练样本二次折损(0.85×0.85≈0.72)。
+        # 新实现:早停验证交由 HGBR 内部(validation_fraction 一次切分)承担;
+        # 时间序验证由 Walk-forward/回测负责,不由单次 fit 承担。
+        self.model = self._train_gradient_boosting(X, y, None, None, sample_weight)
 
-        # 训练梯度提升模型
-        self.model = self._train_gradient_boosting(
-            X_train, y_train, X_val, y_val, w_train
-        )
-
-        # 计算特征重要性
-        self.feature_importance_ = self._calculate_feature_importance()
+        # 计算特征重要性(审查 A70A601 §22:HGBR 无原生 importance →
+        # permutation importance 提供可解释 contribution)
+        self.feature_importance_ = self._calculate_feature_importance(X, y)
 
         logger.info("模型训练完成")
         return self
@@ -229,26 +210,44 @@ class PoissonLossHGBR(BaseEstimator, RegressorMixin):
 
         return model
 
-    def _calculate_feature_importance(self) -> pd.Series:
+    def _calculate_feature_importance(self, X=None, y=None) -> pd.Series:
         """
-        计算特征重要性
+        计算特征重要性(审查 A70A601 §22)。
 
-        Returns:
-            特征重要性Series
+        HGBR 无原生 feature_importances_ —— 不再返回空"unavailable",改用
+        permutation importance(对代表性样本,负 Poisson 偏差 score):
+        contribution = 打乱单列后指标下降量均值(值越大 = 该列越重要)。
+        返回 Series(index=特征名);极端小样本/失败时仍返回空(标注 unavailable)。
         """
         if self.model is None:
             return pd.Series()
-
         try:
             if hasattr(self.model, "feature_importances_"):
+                self.importance_method_ = "native"
                 return pd.Series(
                     self.model.feature_importances_, index=self.model.feature_names_in_
                 )
-            else:
-                # HGBR 无 feature_importances_:不返回伪造占位值,返回空并标注不可用
+            from sklearn.inspection import permutation_importance
+
+            # 代表性样本控制计算量(全量混洗开销高;可解释性不受影响)
+            _n = min(200, len(X) if X is not None else 0)
+            if _n == 0:
                 return pd.Series(dtype=float, name="unavailable")
+            _X = X.iloc[:_n] if hasattr(X, "iloc") else X[:_n]
+            _y = y.iloc[:_n] if hasattr(y, "iloc") else y[:_n]
+            _pi = permutation_importance(
+                self.model,
+                _X,
+                _y,
+                n_repeats=3,
+                random_state=self.random_state,
+                scoring="neg_mean_poisson_deviance",
+                n_jobs=-1,
+            )
+            self.importance_method_ = "permutation"
+            return pd.Series(_pi.importances_mean, index=self.model.feature_names_in_)
         except Exception:
-            return pd.Series()
+            return pd.Series(dtype=float, name="unavailable")
 
     def predict(self, X: pd.DataFrame) -> np.ndarray:
         """
@@ -354,7 +353,7 @@ class PoissonLossHGBR(BaseEstimator, RegressorMixin):
         Returns:
             交叉验证结果
         """
-        from sklearn.model_selection import cross_val_score
+        from sklearn.model_selection import TimeSeriesSplit, cross_val_score
 
         # 使用时间序列交叉验证
         tscv = TimeSeriesSplit(n_splits=cv)

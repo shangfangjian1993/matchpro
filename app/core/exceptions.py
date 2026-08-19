@@ -1,4 +1,5 @@
 """统一业务异常(审查 §35:core 提供;CLI run 统一捕获 → exit 1)。"""
+
 from __future__ import annotations
 
 

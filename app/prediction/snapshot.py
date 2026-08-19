@@ -89,12 +89,11 @@ def save(
         _he_a, _ae_a, _att = prematch_elo(hist_df, home_team, away_team, "attack")
     except Exception:
         _he_o = _ae_o = _he_a = _ae_a = _att = None
-    try:
-        from app.models.ensemble import load_weights
+    # 审查 A70A601 P1-2:权重损坏(存在但解析/非法)由 load_weights raise、
+    # 此处不吞 —— 快照不得在"伪装成默认权重"的状态下生成
+    from app.models.ensemble import load_weights
 
-        _ens_w = load_weights(league.league_type)
-    except Exception:
-        _ens_w = {}
+    _ens_w = load_weights(league.league_type)
     try:
         with open(
             os.path.join(
@@ -111,6 +110,36 @@ def save(
             _dcp = json.load(_dcp_f).get(league.league_type, {})
     except Exception:
         _dcp = {}
+    # 审查 A70A601 §22:Feature Contribution(HGBR permutation importance)
+    _feature_contrib = None
+    try:
+        _imp = getattr(model, "feature_importance_", None)
+        if _imp is not None and len(_imp):
+            _s = _imp.sort_values()
+            _contrib = [
+                {"feature": str(k), "value": round(float(v), 4)}
+                for k, v in _s.items()
+                if not (isinstance(v, float) and __import__("math").isnan(v))
+            ]
+            if _contrib:
+                _feature_contrib = {
+                    "method": getattr(model, "importance_method_", "permutation"),
+                    "top_positive": list(reversed(_contrib[-5:])),
+                    "top_negative": _contrib[:5],
+                }
+    except Exception:
+        _feature_contrib = None
+    # 审查 A70A601 P1-4:Bayes 成员版本冻结(公式哈希 + 超参常量)
+    _bayes_ver = _bayes_kappa_hist = _bayes_kappa_recent = None
+    try:
+        from app.models import bayes_team as _bt
+        from app.models.bayes_team import version as _bv
+
+        _bayes_ver = _bv()
+        _bayes_kappa_hist = _bt.LEAGUE_KAPPA
+        _bayes_kappa_recent = _bt.RECENT_KAPPA
+    except Exception:
+        _bayes_ver = None
 
     # ── 阶段 3(核心):最终输入特征(100% 重放)── 失败 raise ───────────────
     if _feat is None:
@@ -176,8 +205,9 @@ def save(
         _model_cutoff = None
     try:
         from datetime import datetime as _dt
+        from datetime import timezone as _tz
 
-        _pred_cutoff = _dt.now(tz=_dt.timezone.utc).isoformat(timespec="seconds")
+        _pred_cutoff = _dt.now(tz=_tz.utc).isoformat(timespec="seconds")
     except Exception:
         _pred_cutoff = None
 
@@ -208,6 +238,17 @@ def save(
             },
             "gbm": {"sha256": _gbm_hash} if _gbm_hash else None,
             "ensemble": {"sha256": _ens_hash} if _ens_hash else None,
+            # 审查 A70A601 P1-4:Bayes 成员正式冻结(先验/超参已含于 data_hash
+            # 与公式哈希;version 覆盖常数与实现变化)
+            "bayes": (
+                {
+                    "version": _bayes_ver,
+                    "kappa_hist": _bayes_kappa_hist,
+                    "kappa_recent": _bayes_kappa_recent,
+                }
+                if _bayes_ver
+                else None
+            ),
             "calibration": (
                 {
                     "method": _cal_info["method"],
@@ -237,9 +278,12 @@ def save(
         if getattr(model, "config", None)
         else None,
         "ensemble_weights": {
-            k: v for k, v in _ens_w.items() if k in ("hgbr", "dc", "nb", "elo", "gbm")
+            k: v
+            for k, v in _ens_w.items()
+            if k in ("hgbr", "dc", "nb", "elo", "gbm", "bayes")
         },
         "dc_tau": _dcp.get("tau"),
+        "feature_contribution": _feature_contrib,
         "nb_phi": _dcp.get("phi"),
         "calibration": _cal_info,
         "prior_blend": result.get("prior_blend"),

@@ -1,4 +1,5 @@
 """统一日志配置(审查 §35:core 提供,替代散落的 basicConfig)。"""
+
 from __future__ import annotations
 
 import logging

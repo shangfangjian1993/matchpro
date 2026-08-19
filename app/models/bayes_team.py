@@ -142,3 +142,20 @@ def bayes_lambda(
     lam_h = league * att_h * def_a
     lam_a = league * att_a * def_h
     return float(np.clip(lam_h, 0.05, 6.0)), float(np.clip(lam_a, 0.05, 6.0))
+
+
+def version() -> str:
+    """公式哈希(审查 A70A601 P1-4:Bayes 成员纳入版本冻结用)。
+
+    规格 = 超参常量(κ₁/κ₂/窗口);实现 = 两阶段收缩 + bayes_lambda 源码。
+    任何常数/公式变化 → version 变化 → 快照 model_set 变化。
+    """
+    import hashlib
+    import inspect
+
+    spec = (
+        f"LEAGUE_KAPPA={LEAGUE_KAPPA};RECENT_KAPPA={RECENT_KAPPA};"
+        f"HIST_WINDOW={HIST_WINDOW};RECENT_WINDOW={RECENT_WINDOW}"
+    )
+    impl = inspect.getsource(team_posteriors) + inspect.getsource(bayes_lambda)
+    return hashlib.sha256((spec + "|" + impl).encode()).hexdigest()[:12]

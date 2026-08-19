@@ -89,9 +89,9 @@ _TYPE_RUNNERS = {
 
 
 def _current_season() -> int:
-    from datetime import datetime
+    from datetime import datetime, timezone
 
-    now = datetime.now(tz=datetime.timezone.utc)
+    now = datetime.now(tz=timezone.utc)
     return now.year if now.month >= 8 else now.year - 1
 
 

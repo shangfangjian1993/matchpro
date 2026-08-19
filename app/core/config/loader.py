@@ -4,6 +4,7 @@
 不关心业务超参。load_yaml 依据 core/paths.PROJECT_ROOT 定位,保证运行
 目录无关性(与旧 top-level load_yaml 行为等价)。
 """
+
 from __future__ import annotations
 
 import os
@@ -11,6 +12,7 @@ import os
 
 def _config_dir() -> str:
     from app.core.paths import PROJECT_ROOT
+
     return os.path.join(str(PROJECT_ROOT), "configs")
 
 

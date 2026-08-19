@@ -8,6 +8,7 @@
 
 外部仍以 from app.core.config import LeagueType, ... 使用,无需改动调用方。
 """
+
 from __future__ import annotations
 
 from app.core.config.features import feature_flags
@@ -20,12 +21,12 @@ from app.core.constants import (
 )
 
 __all__ = [
+    "MATCH_METRIC_COLUMNS",
+    "TOURNAMENT_LEAGUE_TYPES",
     "LeagueType",
     "ModelConfig",
     "MultiLeagueConfig",
     "config",
-    "load_yaml",
     "feature_flags",
-    "MATCH_METRIC_COLUMNS",
-    "TOURNAMENT_LEAGUE_TYPES",
+    "load_yaml",
 ]

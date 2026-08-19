@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 from app.features.attack_defense import (
     compute_attack_defense,
     compute_metric_rolling,
+    compute_opponent_adjusted_xg,
     compute_side_metric_rolling,
 )
 from app.features.form import compute_form
@@ -33,6 +34,7 @@ def compute_all(
     out = compute_strength(df, league_type)  # 01 Team Strength(ELO)
     long, _ = build_long_table(out)
     out = compute_attack_defense(out, long)  # 02 Attack/Defense
+    out = compute_opponent_adjusted_xg(out, long)  # Opponent-adjusted xG(A70A601 §20)
     out = compute_form(out, long)  # 03 Form & Momentum
     # 审查七 V7-3:H2H 默认关闭(configs/models.yaml features.h2h)——
     # 样本少+阵容/教练变化大,2021 交手≠2026 交手;特殊场景再开

@@ -4,6 +4,7 @@
 load_yaml('models.yaml').get('features')"收敛为单一入口 feature_flags()。
 用于:registry.logical_version(评估/模型身份)、Factory(h2h 开关)等。
 """
+
 from __future__ import annotations
 
 from app.core.config.loader import load_yaml

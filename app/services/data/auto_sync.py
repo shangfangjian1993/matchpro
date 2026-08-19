@@ -40,9 +40,9 @@ def _job_collector(freq: str):
 
 def _current_season_start() -> int:
     """当前足球赛季起始年:8 月~次年 5 月为一季(2026-08 → 2026)"""
-    from datetime import datetime
+    from datetime import datetime, timezone
 
-    now = datetime.now(tz=datetime.timezone.utc)
+    now = datetime.now(tz=timezone.utc)
     return now.year if now.month >= 8 else now.year - 1
 
 
@@ -99,11 +99,11 @@ def _job_injury():
     if not key:
         print("[injury] 未设置 API_FOOTBALL_KEY,跳过", flush=True)
         return 0
-    from datetime import datetime
+    from datetime import datetime, timezone
 
     from app.data.sources.injuries.collector import InjuriesCollector
 
-    day = datetime.now(tz=datetime.timezone.utc).strftime("%Y-%m-%d")
+    day = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
     print(f"[injury] 拉取 {day} 伤停 ...", flush=True)
     c = InjuriesCollector()
     recs = c.fetch_by_date(day, use_cache=False)  # 强制刷新当日缓存

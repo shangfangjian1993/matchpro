@@ -13,7 +13,7 @@ import os
 import subprocess
 import sys
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 _SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "auto_sync.py")
 # (任务, 星期几(0=周一..6=周日, None=每天), 时, 分)
@@ -45,7 +45,7 @@ def _run(task: str) -> None:
         ]
     )
     print(
-        f"[scheduler] {datetime.now(tz=datetime.timezone.utc):%H:%M} 触发 {task}",
+        f"[scheduler] {datetime.now(tz=timezone.utc):%H:%M} 触发 {task}",
         flush=True,
     )
     try:
@@ -76,7 +76,7 @@ def main() -> int:
     )
     last_run = {}  # (task, weekday) -> 日期,防止窗口内重复
     while True:
-        now = datetime.now(tz=datetime.timezone.utc)
+        now = datetime.now(tz=timezone.utc)
         for task, weekday, hour, minute in _SCHEDULE:
             key = (task, now.date())
             if _due(task, weekday, hour, minute, now) and key not in last_run:

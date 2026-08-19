@@ -88,6 +88,7 @@ def train_model(
         try:
             import hashlib as _ah
             from datetime import datetime as _dt
+            from datetime import timezone as _tz
 
             _art = {
                 "version": version,
@@ -95,7 +96,7 @@ def train_model(
                     __import__("pathlib").Path(path, "rb").read_bytes()
                 ).hexdigest(),
                 "feature_version": getattr(model, "feature_version_", None),
-                "trained_at": _dt.now(tz=_dt.timezone.utc).isoformat(),
+                "trained_at": _dt.now(tz=_tz.utc).isoformat(),
                 "training_rows": len(df),
                 "model_type": getattr(model, "config", None).model_type
                 if getattr(model, "config", None)
@@ -239,6 +240,7 @@ def train_model(
             import hashlib as _hl
             import json as _json
             from datetime import datetime as _dt
+            from datetime import timezone as _tz
 
             from app.api.db import Experiment, db
 
@@ -251,7 +253,7 @@ def train_model(
                     feature_version=str(getattr(model, "feature_version_", "unknown")),
                     model_version=str(version),
                     train_start=results.get("_t0"),
-                    train_end=_dt.now(tz=_dt.timezone.utc),
+                    train_end=_dt.now(tz=_tz.utc),
                     hyperparameters_json=_json.dumps(
                         getattr(model, "config", None).parameters
                         if getattr(model, "config", None)

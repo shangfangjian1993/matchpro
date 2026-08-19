@@ -1,7 +1,17 @@
-"""Goal Engine(审查 §12/§14 拆分):HGBR/DC/NB/ELO → λ、成员概率、比分矩阵。
+"""Goal Engine(审查 §12/§14 拆分 + A70A601 §4/§24⑤):成员层次结构明确。
 
-输出:成员概率(4 成员)、比分矩阵、Score Outputs(Top5/Over-Under/BTTS/xG)、
-融合 λ(与概率一致的期望进球)。
+成员三层结构(勿把"5 成员"当作 5 个独立 λ 模型):
+  第一层 独立 λ:　HGBR(特征回归)、ELO(评级→λ)、Bayes(层次贝叶斯收缩)
+  第二层 比分分布(共享第一层 λ,负责分布形态):
+         Poisson(hgbr λ)、Dixon-Coles(hgbr λ + τ 低分修正)、
+         NegativeBinomial(hgbr λ + φ 过离散)
+  第三层 结果分类器:Outcome GBM(1X2,独立于 λ 融合)
+DC/NB 不是独立预测模型,而是分布层变体;fused λ 只融合第一层
+(审查 P0-2 已含 Bayes),分布层只贡献 score matrix 形态;权重学习
+(Baseline-aware)由 OOF 对数释然数据驱动,避免伪多样性高估。
+
+输出:成员概率、比分矩阵、Score Outputs(Top5/Over-Under/BTTS/xG)、
+融合 λ(第一层 λ 加权,校验用)。
 """
 
 from __future__ import annotations
@@ -53,13 +63,16 @@ def compute_members(
     # 改动会改变历史快照结果);fused_matrix 直接给 Snapshot 落库
     wh = weights.get("hgbr", 1.0) + weights.get("dc", 0.0) + weights.get("nb", 0.0)
     we = weights.get("elo", 0.0)
-    wg = wh + we
-    # 审查 P1-8/9:Goal 权重归一化 —— GBM 只进 Outcome(1X2),不得缩放 λ;
-    # 归一化后 fused λ 与 score matrix(内部 out/sum)严格一致。
+    wb = weights.get("bayes", 0.0)
+    wg = wh + we + wb
+    # 审查 A70A601 P0-2:Bayes 参与 score matrix,则其 λ 必须进入 fused λ,
+    # 否则"预测进球(fused λ)"与"expected_xg(矩阵期望)"分属不同概率体系。
+    # bayes 兜底 lam_bh or lam_h 与 matrix 成员一致(_pois_matrix(lam_bh or lam_h)),
+    # 保证同源 → 各成员 λ 全部计入后 fused λ ≈ 矩阵期望。
     if wg > 0:
         fused_lams = (
-            wh / wg * lam_h + we / wg * lam_eh,
-            wh / wg * lam_a + we / wg * lam_ea,
+            (wh * lam_h + we * lam_eh + wb * (lam_bh or lam_h)) / wg,
+            (wh * lam_a + we * lam_ea + wb * (lam_ba or lam_a)) / wg,
         )
     else:
         fused_lams = (lam_h, lam_a)

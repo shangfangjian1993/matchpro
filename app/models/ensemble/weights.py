@@ -46,11 +46,56 @@ def learn_weights(
     present = [n for n in names_all if any(n in s for s in samples)]
     n = max(1, len(samples))
 
-    _prior = np.array(
-        [(prior or {}).get(name, 1.0 if name == "hgbr" else 0.0) for name in present],
-        dtype=float,
-    )
-    _prior = _prior / _prior.sum()
+    # 审查 A70A601 §16:Baseline-aware prior —— 不再默认 "hgbr=1、其余 0"。
+    # 旧实现:小样本/新成员 OOF 证据不足时,L2 永远拉向 HGBR → 新成员极难
+    # 挑战 HGBR,权重学习有效自由度低(DC/NB 与 HGBR 高度相关时尤其明显)。
+    # 新实现:prior 由 **out-of-time OOF 平均负对数似然** 数据驱动
+    #   prior_i ∝ exp(-mean_nll_i / T),T=0.15
+    # "谁在 OOT 数据上真正贡献增量信息,谁拿更高收缩先验" —— baseline-aware。
+    if prior is None:
+        if len(samples) >= 30:
+            _nll = {}
+            for _name in present:
+                _v = []
+                for s in samples:
+                    try:
+                        _p = np.clip(np.asarray(s[_name], dtype=float), 1e-12, None)
+                        _p = _p / _p.sum()
+                        _v.append(-math.log(_p[int(s["actual"])]))
+                    except Exception:
+                        pass
+                _nll[_name] = float(np.mean(_v)) if _v else math.inf
+            _T = 0.15
+            _inf_mask = np.array(
+                [not math.isfinite(_nll.get(n_, math.inf)) for n_ in present]
+            )
+            _logits = np.array([-_nll[n_] / _T for n_ in present])
+            if np.all(_inf_mask):
+                _prior = np.ones(len(present)) / len(present)
+            else:
+                _m = _logits[~_inf_mask].max()
+                _e = np.zeros(len(present))
+                _e[~_inf_mask] = np.exp(_logits[~_inf_mask] - _m)
+                _prior = _e / _e.sum()
+        else:
+            # 样本极少(过拟合风险):温和默认 —— hgbr 0.6,其余均分
+            _prior = np.array(
+                [
+                    0.6
+                    if name == "hgbr"
+                    else (0.4 / (len(present) - 1) if len(present) > 1 else 1.0)
+                    for name in present
+                ],
+                dtype=float,
+            )
+            _prior = _prior / _prior.sum()
+    else:
+        _prior = np.array([prior.get(name, 0.0) for name in present], dtype=float)
+        _prior = (
+            _prior / _prior.sum()
+            if _prior.sum() > 0
+            else (np.ones(len(present)) / len(present))
+        )
 
     def _nll_pure(w):
         ll = 0.0
@@ -109,7 +154,12 @@ def learn_weights(
 
 
 def load_weights(league_key: str, default: dict | None = None) -> dict:
-    """加载该联赛学习到的权重;无文件/无该联赛时回退默认。"""
+    """加载该联赛学习到的权重(审查 A70A601 P1-2:异常分级)。
+
+    - 路径不可解析/文件不存在 → 回退默认(degraded,合法)。
+    - 文件**存在但损坏**(JSON 解析失败)或值非法/越界 → raise ValueError:
+      不得伪装成默认配置 —— 上层(engine)需据此 fail-fast。
+    """
     w = dict(default or DEFAULT_WEIGHTS)
     path = _WEIGHTS_PATH
     if path is None:
@@ -119,14 +169,31 @@ def load_weights(league_key: str, default: dict | None = None) -> dict:
             path = os.path.join(str(_AD), "ensemble", "ensemble_weights.json")
         except Exception:
             path = None
+    if not path or not os.path.exists(path):
+        return w
     try:
-        if path and os.path.exists(path):
-            with open(path, encoding="utf-8") as _wf:
-                data = json.load(_wf)
-            if league_key in data:
-                for k in ("hgbr", "dc", "nb", "elo", "gbm", "bayes"):
-                    if k in data[league_key]:
-                        w[k] = float(data[league_key][k])
-    except Exception:
-        pass
+        with open(path, encoding="utf-8") as _wf:
+            data = json.load(_wf)
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError) as _e:
+        raise ValueError(f"ensemble_weights.json 损坏: {_e}") from _e
+    if not isinstance(data, dict):
+        raise TypeError(
+            f"ensemble_weights.json 顶层应为 dict,实际 {type(data).__name__}"
+        )
+    if league_key in data:
+        _entry = data[league_key]
+        if not isinstance(_entry, dict):
+            raise TypeError(
+                f"ensemble_weights[{league_key}] 应为 dict,实际 {type(_entry).__name__}"
+            )
+        for k in ("hgbr", "dc", "nb", "elo", "gbm", "bayes"):
+            if k not in _entry:
+                continue
+            try:
+                _val = float(_entry[k])
+            except (TypeError, ValueError) as _e:
+                raise ValueError(f"权重 {k} 非法值: {_entry[k]!r}") from _e
+            if not math.isfinite(_val) or not (0.0 <= _val <= 1.0):
+                raise ValueError(f"权重 {k} 越界/非有限: {_val!r}")
+            w[k] = _val
     return w

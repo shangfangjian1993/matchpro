@@ -8,6 +8,7 @@ RedisBackend(跨进程共享,生产)。后端由环境变量选择:
 
 序列化统一 pickle(键/值);Redis 值带 TTL。
 """
+
 from __future__ import annotations
 
 import os
@@ -68,15 +69,20 @@ class RedisBackend(CacheBackend):
 
     def __init__(self, url: str | None = None, prefix: str = "matchpro:cache:"):
         import redis
-        self._r = redis.Redis.from_url(url or os.environ.get(
-            "REDIS_URL", "redis://localhost:6379/0"), decode_responses=False)
+
+        self._r = redis.Redis.from_url(
+            url or os.environ.get("REDIS_URL", "redis://localhost:6379/0"),
+            decode_responses=False,
+        )
         self._prefix = prefix
         try:
             self._r.ping()
         except Exception:
             import logging
+
             logging.getLogger(__name__).warning(
-                "Redis 不可达(%s),缓存后端降级为本地内存", url)
+                "Redis 不可达(%s),缓存后端降级为本地内存", url
+            )
 
     def _k(self, key) -> str:
         if isinstance(key, tuple):

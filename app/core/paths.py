@@ -2,6 +2,7 @@
 
 所有模块经此引用项目根与关键目录,禁止硬编码绝对路径。
 """
+
 from __future__ import annotations
 
 from pathlib import Path

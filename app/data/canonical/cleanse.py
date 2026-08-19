@@ -9,7 +9,7 @@
 """
 
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 
 # 可入库的指标字段(与 matches 表列对应)
 from app.core.config import MATCH_METRIC_COLUMNS as METRIC_FIELDS
@@ -84,7 +84,7 @@ def _parse_date(value) -> datetime | None:
         "%d/%m/%y",
     ):
         try:
-            return datetime.strptime(s[:19], fmt).replace(tzinfo=datetime.timezone.utc)
+            return datetime.strptime(s[:19], fmt).replace(tzinfo=timezone.utc)
         except ValueError:
             continue
     try:

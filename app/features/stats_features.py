@@ -65,7 +65,8 @@ def _roll(hist_matches, per_match: dict, windows: tuple = (5,)) -> dict:
 
     per_match: {match_id: {"home": stats_obj_or_none, "away": ...}}
     输出列(全部以 home_tms_/away_tms_ 开头,供公开接口按前缀输出):
-      *_avg_{w}    窗口均值(每个 windows 内窗口)
+      *_avg_{w}         窗口均值(每个 windows 内窗口,side 主/客侧)
+      *_overall_{w}     窗口均值(overall 全历史,side 并行)
       *_ewm        最近主窗口场的指数加权均值
       *_rel        相对对手(本侧均值 − 对手该侧均值)
       *_grp_*_avg  分组聚合均值
@@ -76,6 +77,9 @@ def _roll(hist_matches, per_match: dict, windows: tuple = (5,)) -> dict:
         lambda: {
             "home": collections.defaultdict(list),
             "away": collections.defaultdict(list),
+            # 审查 A70A601 P1-8:overall(全部比赛)滚动 —— side-only 历史在
+            # "近 10 场含 5 主"等场景只取 5 场信息,量不足,需并行 overall。
+            "all": collections.defaultdict(list),
         }
     )
     out: dict = {}
@@ -88,14 +92,24 @@ def _roll(hist_matches, per_match: dict, windows: tuple = (5,)) -> dict:
         for col, base in _AGG_COLS.items():
             hs = team_state[home]["home"][col]
             as_ = team_state[away]["away"][col]
+            ha = team_state[home]["all"][col]
+            aa = team_state[away]["all"][col]
             for w in _w:
                 hw = hs[-w:]
                 aw = as_[-w:]
+                haw = ha[-w:]
+                aaw = aa[-w:]
                 rec[f"home_{base}_avg_{w}"] = (
                     round(sum(hw) / len(hw), 3) if hw else None
                 )
                 rec[f"away_{base}_avg_{w}"] = (
                     round(sum(aw) / len(aw), 3) if aw else None
+                )
+                rec[f"home_{base}_overall_{w}"] = (
+                    round(sum(haw) / len(haw), 3) if haw else None
+                )
+                rec[f"away_{base}_overall_{w}"] = (
+                    round(sum(aaw) / len(aaw), 3) if aaw else None
                 )
             # EWMA:最近主窗口场的加权(方案 B,语义明确)
             hw0, aw0 = hs[-w0:], as_[-w0:]
@@ -129,12 +143,16 @@ def _roll(hist_matches, per_match: dict, windows: tuple = (5,)) -> dict:
             for col in _AGG_COLS:
                 v = getattr(hst, col, None)
                 if v is not None:
-                    team_state[home]["home"][col].append(float(v))
+                    _v = float(v)
+                    team_state[home]["home"][col].append(_v)
+                    team_state[home]["all"][col].append(_v)
         if ast is not None:
             for col in _AGG_COLS:
                 v = getattr(ast, col, None)
                 if v is not None:
-                    team_state[away]["away"][col].append(float(v))
+                    _v = float(v)
+                    team_state[away]["away"][col].append(_v)
+                    team_state[away]["all"][col].append(_v)
     return out
 
 
