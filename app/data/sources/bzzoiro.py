@@ -309,10 +309,9 @@ def merge_league(
                 nm = to_normalized(r, league_type_value)
                 old = _find(r)
                 if old is not None:
-                    old.home_goals = nm.home_goals
-                    old.away_goals = nm.away_goals
-                    old.home_ht_goals = nm.home_ht_goals
-                    old.away_ht_goals = nm.away_ht_goals
+                    from app.data.canonical.reconcile import maybe_update
+
+                    _rec = maybe_update(old, nm, "bzzoiro")
                     update_existing += 1
                 else:
                     insert_new.append(nm)
@@ -631,10 +630,9 @@ def import_recent(
                     None,
                 )
                 if old is not None:
-                    old.home_goals = nm.home_goals
-                    old.away_goals = nm.away_goals
-                    old.home_ht_goals = nm.home_ht_goals
-                    old.away_ht_goals = nm.away_ht_goals
+                    from app.data.canonical.reconcile import maybe_update
+
+                    _rec = maybe_update(old, nm, "bzzoiro")
                     updated += 1
                 else:
                     inserted_list.append(nm)

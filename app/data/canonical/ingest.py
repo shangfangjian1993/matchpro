@@ -117,8 +117,12 @@ def _write_team_stats(db, match) -> None:
                 setattr(row, k, v)
 
 
-def upsert_matches(matches: list[NormalizedMatch]) -> dict:
-    """批量 upsert;返回 {"inserted": n, "updated": n, "skipped": n, "errors": [...]}"""
+def upsert_matches(matches: list[NormalizedMatch], source: str = "canonical") -> dict:
+    """批量 upsert;返回 {"inserted": n, "updated": n, "skipped": n, "errors": [...]}
+
+    source:调用方标识(fdco/zafronix/bzzoiro/…),用于 Source→Canonical 谱系
+    (迁移 0014 后生效;未迁移时自动降级,不影响采集)。
+    """
     from app.api.db import League, Match
 
     if not matches:
@@ -214,8 +218,11 @@ def upsert_matches(matches: list[NormalizedMatch]) -> dict:
                         old.match_status = nm.match_status
                         changed = True
                         if nm.match_status == "finished" and nm.home_goals is not None:
-                            old.home_goals = nm.home_goals
-                            old.away_goals = nm.away_goals
+                            # 占位升级(scheduled 0:0 → finished 真实比分):
+                            # force_override 覆盖并记录来源/旧值快照(0014 后)
+                            from app.data.canonical.reconcile import maybe_update
+
+                            maybe_update(old, nm, source, force_override=True)
                     # 指标字段只补空(不覆盖已存在的真实值)
                     changed = _apply_fields(old, nm, merge_only=True) or changed
                     _write_team_stats(db, old)
