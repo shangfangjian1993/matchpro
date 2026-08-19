@@ -109,9 +109,10 @@ def logical_version() -> str:
     # 审查七 V7-3:特征开关(h2h)属于实现状态 —— 开关变化必须改变版本,
     # 否则旧模型(带 h2h 列)会被当成与新特征兼容 → 预测列失配
     try:
-        from app.core.config import load_yaml
+        # 拆分后单一入口:config/features.py(P2-2)
+        from app.core.config.features import feature_flags
 
-        _fc = load_yaml("models.yaml").get("features") or {}
+        _fc = feature_flags()
         parts.append(
             "features="
             + _hl.sha256(_json.dumps(_fc, sort_keys=True).encode()).hexdigest()[:8]

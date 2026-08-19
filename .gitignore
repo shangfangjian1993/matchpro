@@ -42,6 +42,6 @@ Thumbs.db
 # Redis 持久化文件(本地 redis-server 生成)
 dump.rdb
 *.rdb
-# 崩溃转储/抓取缓存
-core
+# 崩溃转储/抓取缓存(仅根目录;勿用裸 core,否则误伤 app/core/ 配置包)
+/core
 downloaded_files/

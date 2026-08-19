@@ -37,9 +37,9 @@ def compute_all(
     # 审查七 V7-3:H2H 默认关闭(configs/models.yaml features.h2h)——
     # 样本少+阵容/教练变化大,2021 交手≠2026 交手;特殊场景再开
     try:
-        from app.core.config import load_yaml
+        from app.core.config.features import feature_flags
 
-        _h2h_enabled = (load_yaml("models.yaml").get("features") or {}).get("h2h", True)
+        _h2h_enabled = feature_flags().get("h2h", True)
     except Exception:
         _h2h_enabled = True
     if _h2h_enabled:
