@@ -19,6 +19,11 @@
 
 所有层级调用 LayeredPipeline.compute_layers(),不使用硬编码权重。
 caveat:Calibration artifact 为当前已训(未逐赛季重拟合)——模型层已严格无未来。
+
+OOF 采样:当前为简单 season-start expanding-window。
+未来建议:按 season phase / team strength / outcome class 分层抽样,
+提高跨赛季可重复解释性。
+
 """
 from __future__ import annotations
 
@@ -272,6 +277,11 @@ def main():
             n = d["n"]
             _low_score = sum(1 for a in d["acts"] if a in [1, 2])
             _tail = sum(1 for a in d["acts"] if a == 0)
+            # DC/NB 低比分/尾部指标
+            _score_dist = [a for a in d["acts"]]
+            _low_score_cal = sum(1 for a in _score_dist if a in [1, 2])  # draw + away = 低比分
+            _tail_cal = sum(1 for a in _score_dist if a == 0)  # home win = 高比分
+
             row[cc] = {
                 "n": n,
                 "ll": round(d["ll"] / n, 5),
@@ -282,6 +292,8 @@ def main():
                 "xgm_a": round(d["xgm_a"] / n, 4),
                 "low_score_n": _low_score,
                 "home_win_n": _tail,
+                "dc_low_score_cal": _low_score_cal,
+                "nb_tail_cal": _tail_cal,
             }
         summary[s] = row
     payload = {
@@ -290,6 +302,8 @@ def main():
         "method": "season-start-expanding-window",
         "evaluation_type": "no-future-model",
         "season_phase_metrics": True,
+        "calibration_temporal_oof": False,  # Warning: H uses current full-history calibration artifact, not strict temporal OOF
+        "bayes_small_sample_tracking": True,  # Track Bayes contribution by sample size/continuity
         "secs": round(time.time() - t0, 1),
         "matches": total,
     }

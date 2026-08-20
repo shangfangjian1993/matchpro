@@ -1,5 +1,14 @@
 """谱系记录:写入/查询 match_source_records 表。
 
+字段说明:
+- hash: SHA256(content)[:16],用于幂等检测(检测重复记录)
+
+
+并发注意:当前使用 query-then-insert 模式。
+PostgreSQL 部署时应改为 INSERT ... ON CONFLICT DO NOTHING,
+或捕获 IntegrityError 后查询已有记录。
+
+
 统一接口,替代对 source_scores_json 的直接操作。
 """
 from __future__ import annotations
@@ -11,7 +20,11 @@ from app.api.db import MatchSourceRecord, db, utcnow
 
 
 def _compute_hash(source: str, home_goals, away_goals, home_ht_goals, away_ht_goals) -> str:
-    """内容哈希(检测重复记录)。"""
+    """内容哈希(检测重复记录)。
+    
+    返回: SHA256(content)[:16] (16 hex chars)。
+    DB 字段: hash VARCHAR(64) — 足够容纳完整 SHA256。
+    """
     content = f"{source}:{home_goals}:{away_goals}:{home_ht_goals}:{away_ht_goals}"
     return hashlib.sha256(content.encode()).hexdigest()[:16]
 

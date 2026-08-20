@@ -2,9 +2,9 @@
 
 成员三层结构(勿把"5 成员"当作 5 个独立 λ 模型):
   第一层 独立 λ:　HGBR(特征回归)、ELO(评级→λ)、Bayes(层次贝叶斯收缩)
-  第二层 比分分布(共享第一层 λ,负责分布形态):
-         Poisson(hgbr λ)、Dixon-Coles(hgbr λ + τ 低分修正)、
-         NegativeBinomial(hgbr λ + φ 过离散)
+  第二层 比分分布(基于 fused λ,负责分布形态):
+         Poisson(fused λ)、Dixon-Coles(fused λ + τ 低分修正)、
+         NegativeBinomial(fused λ + φ 过离散)
   第三层 结果分类器:Outcome GBM(1X2,独立于 λ 融合)
 DC/NB 不是独立预测模型,而是分布层变体;fused λ 只融合第一层
 (审查 P0-2 已含 Bayes),分布层只贡献 score matrix 形态;权重学习
