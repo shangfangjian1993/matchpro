@@ -508,7 +508,7 @@ def import_recent(
         d0["results"][0]["event_date"].replace("Z", "+00:00")
     )
     last_season = latest.year if latest.month >= 8 else latest.year - 1
-    cutoff = _dt.datetime(last_season - seasons + 1, 8, 1, tzinfo=_dt.timezone.utc)
+    cutoff = _dt.datetime(last_season - seasons + 1, 8, 1)
     total = d0.get("count", 0)
 
     rows, ofs = [], 0
@@ -532,6 +532,8 @@ def import_recent(
         _time.sleep(0.25)
         if not kept:
             continue  # 旧页快进
+
+    from app.data.canonical.reconcile import maybe_update
 
     with session_scope():
         league = League.query.filter_by(league_type=league_type_value).first()
@@ -558,8 +560,6 @@ def import_recent(
                 nm = to_normalized(e, league_type_value)
                 old, orientation = _find(nm)
                 if old is not None:
-                    from app.data.canonical.reconcile import maybe_update
-
                     _rec = maybe_update(
                         old, nm, "bzzoiro", orientation=orientation
                     )

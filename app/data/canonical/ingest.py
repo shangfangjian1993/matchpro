@@ -204,6 +204,8 @@ def upsert_matches(matches: list[NormalizedMatch], source: str = "canonical") ->
                     _upsert_team_season(db, nm.away_team_id, league.id, season)
                     # 状态变化:升级到 finished 时强制覆盖比分(旧 scheduled 的 0 是占位值,
                     # merge_only 无法区分占位 0 与真实 0:0)
+                    from app.data.canonical.reconcile import maybe_update
+
                     if old.match_status != nm.match_status and (
                         nm.match_status == "finished" or old.match_status != "finished"
                     ):
@@ -214,8 +216,6 @@ def upsert_matches(matches: list[NormalizedMatch], source: str = "canonical") ->
                         if nm.match_status == "finished" and nm.home_goals is not None:
                             # 占位升级(scheduled 0:0 → finished 真实比分):
                             # force_override 覆盖并记录来源/旧值快照(0014 后)
-                            from app.data.canonical.reconcile import maybe_update
-
                             maybe_update(
                                 old,
                                 nm,
@@ -230,9 +230,7 @@ def upsert_matches(matches: list[NormalizedMatch], source: str = "canonical") ->
                         nm.match_status == "finished"
                         and old.match_status == "finished"
                     ):
-                        _rec2 = maybe_update(
-                            old, nm, source, orientation=orientation
-                        )
+                        maybe_update(old, nm, source, orientation=orientation)
                     # 指标字段只补空(不覆盖已存在的真实值)
                     changed = (
                         _apply_fields(old, nm, merge_only=True, orientation=orientation)
