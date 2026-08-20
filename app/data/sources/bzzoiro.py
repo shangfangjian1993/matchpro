@@ -533,6 +533,7 @@ def import_recent(
         if not kept:
             continue  # 旧页快进
 
+    from app.data.canonical.lineage import record_source
     from app.data.canonical.reconcile import maybe_update
 
     with session_scope():
@@ -562,6 +563,16 @@ def import_recent(
                 if old is not None:
                     _rec = maybe_update(
                         old, nm, "bzzoiro", orientation=orientation
+                    )
+                    # 写入关系表
+                    record_source(
+                        match_id=old.id,
+                        source="bzzoiro",
+                        home_goals=nm.home_goals,
+                        away_goals=nm.away_goals,
+                        home_ht_goals=nm.home_ht_goals,
+                        away_ht_goals=nm.away_ht_goals,
+                        orientation=orientation,
                     )
                     updated += 1
                 else:

@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 
 from app.data.canonical.cleanse import NormalizedMatch, validate
+from app.data.canonical.lineage import record_source
 from app.data.canonical.store import _app_ctx, _get_or_create_league
 
 logger = logging.getLogger(__name__)
@@ -239,6 +240,16 @@ def upsert_matches(matches: list[NormalizedMatch], source: str = "canonical") ->
                     _write_team_stats(db, old)
                     if changed:
                         result["updated"] += 1
+                        # 写入来源谱系(关系表)
+                        record_source(
+                            match_id=old.id,
+                            source=source,
+                            home_goals=nm.home_goals,
+                            away_goals=nm.away_goals,
+                            home_ht_goals=nm.home_ht_goals,
+                            away_ht_goals=nm.away_ht_goals,
+                            orientation=orientation,
+                        )
                     else:
                         result["skipped"] += 1
         db.session.commit()

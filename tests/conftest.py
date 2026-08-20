@@ -40,8 +40,9 @@ def client(app):
 @pytest.fixture()
 def db_ctx():
     """DB 会话上下文。"""
-    from app.api.db import init_db, session_scope
+    from app.api.db import Base, get_engine, init_db, session_scope
 
     init_db()
+    Base.metadata.create_all(get_engine())
     with session_scope():
         yield

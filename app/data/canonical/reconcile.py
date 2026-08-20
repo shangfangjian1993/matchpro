@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 
 from app.core.timeutil import utcnow
+from app.data.canonical.lineage import record_source
 
 # 比分/半场字段(home/away 成对,支持方向对齐)
 _SCORE_PAIRS = (
@@ -108,7 +109,17 @@ def _source_profile(old) -> dict:
 
 
 def _record_source(old, source: str, aligned_scores: dict):
-    """把该来源(对齐后)的比分快照写入 source_scores_json。"""
+    """把该来源(对齐后)的比分快照写入关系表 + JSON 兼容字段。"""
+    # 写入关系表(新)
+    record_source(
+        match_id=old.id,
+        source=source,
+        home_goals=aligned_scores.get("home_goals"),
+        away_goals=aligned_scores.get("away_goals"),
+        home_ht_goals=aligned_scores.get("home_ht_goals"),
+        away_ht_goals=aligned_scores.get("away_ht_goals"),
+    )
+    # 保留 JSON 兼容字段(回退/审计)
     prof = _source_profile(old)
     prof[source] = {f: aligned_scores.get(f) for f in _SCORE_FIELDS}
     old.source_scores_json = json.dumps({"sources": prof}, ensure_ascii=False)

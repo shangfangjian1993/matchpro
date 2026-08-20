@@ -729,6 +729,31 @@ class TeamMatchStats(db.Model):
     )
 
 
+class MatchSourceRecord(db.Model):
+    """比赛来源谱系(关系型 lineage,替代 source_scores_json JSON blob)。"""
+    __tablename__ = "match_source_records"
+
+    id = db.Column(db.Integer, primary_key=True)
+    match_id = db.Column(db.Integer, db.ForeignKey("matches.id"), nullable=False, index=True)
+    source = db.Column(db.String(50), nullable=False)
+    external_id = db.Column(db.String(100))
+    home_goals = db.Column(db.Integer)
+    away_goals = db.Column(db.Integer)
+    home_ht_goals = db.Column(db.Integer)
+    away_ht_goals = db.Column(db.Integer)
+    orientation = db.Column(db.String(10), default="SAME")
+    available_at = db.Column(db.DateTime)
+    ingested_at = db.Column(db.DateTime, default=utcnow)
+    status = db.Column(db.String(20), default="active")
+    hash = db.Column(db.String(64))
+
+    __table_args__ = (
+        db.Index("ix_match_source", "match_id", "source"),
+        db.UniqueConstraint("match_id", "source", "hash", name="uq_match_source_hash"),
+    )
+
+
+
 class MatchOdds(db.Model):
     """收盘赔率(bzzoiro /odds 子资源;1x2 + O/U + BTTS)。"""
 
