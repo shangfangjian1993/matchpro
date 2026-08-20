@@ -10,8 +10,9 @@
 
 from __future__ import annotations
 
-import datetime as _dt
 import json
+
+from app.core.timeutil import utcnow
 
 # 比分/半场字段(home/away 成对,支持方向对齐)
 _SCORE_PAIRS = (
@@ -130,7 +131,7 @@ def _source_consensus(old, aligned_scores: dict) -> dict:
 def _touch(old, aligned_scores: dict | None = None):
     """每次对账触达:记录 verified 时间与来源级共识。"""
     try:
-        old.last_reconciled_at = _dt.datetime.now(_dt.timezone.utc)
+        old.last_reconciled_at = utcnow()
     except Exception:
         pass
     if aligned_scores is None:
