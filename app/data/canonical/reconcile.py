@@ -21,6 +21,23 @@ _SCORE_PAIRS = (
 )
 _SCORE_FIELDS = tuple(x for pr in _SCORE_PAIRS for x in pr)
 
+# 来源权威优先级(高 → 低):冲突时高优先级来源胜出,而非先到先得
+SOURCE_AUTHORITY = {
+    "official": 100,          # 官方数据源(如 FDO 赛程)
+    "api_football": 90,       # API-Football(付费,较权威)
+    "fdco": 80,               # Football-Data.co.uk(历史数据)
+    "understat": 75,          # Understat(xG 权威)
+    "bzzoiro": 70,            # Bzzoiro(聚合源)
+    "zafronix": 60,           # Zafronix(国际赛事)
+    "canonical": 50,          # 既有 canonical
+    "legacy": 10,             # 旧数据(无来源标记)
+}
+
+
+def source_authority(source: str) -> int:
+    """来源优先级分数(0-100)。"""
+    return SOURCE_AUTHORITY.get(source, 30)
+
 
 def lineage_available(columns: tuple[str, ...] | None = None) -> bool:
     """Match 表是否已有 lineage 列(migrate 0014)。columns 可注入(测试用)。"""
@@ -185,8 +202,19 @@ def maybe_update(
         _touch(old, aligned_scores)
         return "consensus"
 
-    # 值冲突:首源(无既有来源)→ 覆盖并标记 override;跨源 → 保留旧+conflict
+    # 值冲突处理:
+    # 1. 首源(无既有来源)→ 覆盖并标记 override
+    # 2. 新来源优先级 **高于** 当前 canonical 来源 → 覆盖(来源权威升级)
+    # 3. 否则 → 保留旧值 + 标记 conflict(先到者优先,同优先级不覆盖)
+    _new_auth = source_authority(source)
+    _cur_auth = source_authority(old.source or "")
     if old.source is None or old.source == "legacy":
+        old.source = source
+        _write_scores(old, aligned_scores)
+        old.reconciliation = "override"
+        _touch(old, aligned_scores)
+        return "override"
+    if _new_auth > _cur_auth:
         old.source = source
         _write_scores(old, aligned_scores)
         old.reconciliation = "override"

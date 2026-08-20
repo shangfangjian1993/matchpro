@@ -343,6 +343,9 @@ def main():
                 row[cc] = {"n": 0}
                 continue
             n = d["n"]
+            # 低比分(0-0/1-0/0-1/1-1)计数
+            _low_score = sum(1 for a in d["acts"] if a in [1, 2])  # draw or away win(通常低比分)
+            _tail = sum(1 for a in d["acts"] if a == 0)  # home win(可能高比分)
             row[cc] = {
                 "n": n,
                 "ll": round(d["ll"] / n, 5),
@@ -351,19 +354,23 @@ def main():
                 "ece": round(float(ece(d["pvecs"], d["acts"])), 5),
                 "xgm_h": round(d["xgm_h"] / n, 4),
                 "xgm_a": round(d["xgm_a"] / n, 4),
+                "low_score_n": _low_score,
+                "home_win_n": _tail,
             }
         summary[s] = row
     payload = {
         "league": args.league,
         "seasons": summary,
-        "method": "season-start-expanding-window-no-future-model",
+        "method": "season-start-expanding-window",
+        "evaluation_type": "no-future-model",
+        "season_phase_metrics": True,
         "secs": round(time.time() - t0, 1),
         "matches": total,
     }
     with open(args.out, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
 
-    print(f"\n===== Season-Start Expanding-Window Ablation: {args.league} ({total} 场) =====")
+    print(f"\n===== Season-Start Expanding-Window Evaluation: {args.league} ({total} 场) =====")
     for s in seasons:
         for cc in comps:
             r_ = summary[s].get(cc, {})
@@ -371,7 +378,8 @@ def main():
                 continue
             print(
                 f"{s}  {cc:>7} n={r_['n']:>4} LL={r_['ll']:.4f} B={r_['brier']:.4f} "
-                f"RPS={r_['rps']:.4f} ECE={r_['ece']:.4f} xG_h={r_['xgm_h']:.3f} xG_a={r_['xgm_a']:.3f}"
+                f"RPS={r_['rps']:.4f} ECE={r_['ece']:.4f} xG_h={r_['xgm_h']:.3f} xG_a={r_['xgm_a']:.3f} "
+                f"low={r_.get('low_score_n',0)} home_win={r_.get('home_win_n',0)}"
             )
     print("✅ 报告:", args.out)
 
