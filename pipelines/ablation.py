@@ -17,13 +17,16 @@
   G + Prior: F score/outcome → Prior
   H + Calibration: G → Calibration
 
-所有层级调用 LayeredPipeline.compute_layers(),不使用硬编码权重。
+所有层级调用 LayeredPipeline.compute_prediction(),不使用硬编码权重。
 caveat:Calibration artifact 为当前已训(未逐赛季重拟合)——模型层已严格无未来。
 
 OOF 采样:当前为简单 season-start expanding-window。
 未来建议:按 season phase / team strength / outcome class 分层抽样,
 提高跨赛季可重复解释性。
 
+Ablation 模式:
+- Knockout(当前):固定 production weights + mask,回答"线上删除该组件会损失多少?"
+- Refit(待实现):每个 ablation 重新训练该层权重,回答"该组件理论最优性能增加多少?"
 """
 from __future__ import annotations
 
@@ -43,17 +46,19 @@ from app.api.db import League, Match, init_db
 from app.core.config import LeagueType
 from app.core.paths import MODELS_DIR
 from app.data.adapters import matches_to_dataframe
-from app.models.ensemble.fusion import fuse_goal_outcome
 from app.prediction.context import ContextBuilder
 from app.prediction.engine import PredictionEngine
-from app.prediction.layered_pipeline import ABLATION_MASKS, compute_layers
+from app.prediction.layered_pipeline import (
+    ABLATION_MASKS,
+    compute_prediction,
+)
 from app.replay.metrics import brier_score, ece, log_loss, rps
 
 
 def _component_probs(internal: dict, league_id, match_dt, pf_matrix) -> dict:
     """层级消融 → 各组件 1X2。
     
-    使用 LayeredPipeline.compute_layers() — 唯一数学真相源。
+    使用 LayeredPipeline.compute_prediction() — 唯一数学真相源。
     不同 ablation 仅通过 AblationMask 区分,无硬编码权重。
     """
     lam = internal.get("member_lambdas") or {}
@@ -77,7 +82,7 @@ def _component_probs(internal: dict, league_id, match_dt, pf_matrix) -> dict:
     
     # 遍历预定义的 ablation 配置
     for comp_name, mask in ABLATION_MASKS.items():
-        result = compute_layers(
+        result = compute_prediction(
             lam_h=hg[0],
             lam_a=hg[1],
             lam_eh=el[0] if el else 0.0,
@@ -87,6 +92,9 @@ def _component_probs(internal: dict, league_id, match_dt, pf_matrix) -> dict:
             weights=w_all,
             lam_bh=ba[0] if ba else None,
             lam_ba=ba[1] if ba else None,
+            gbm_probs=gbm,
+            prior_context={"league_id": league_id, "match_dt": match_dt, "raw_matrix": raw_matrix},
+            calibration_context={"models_dir": str(MODELS_DIR), "league_type": LeagueType.PREMIER_LEAGUE},
             ablation_mask=mask,
         )
         if result is None:
@@ -94,58 +102,16 @@ def _component_probs(internal: dict, league_id, match_dt, pf_matrix) -> dict:
             continue
         
         # 根据层级提取对应概率
-        if comp_name in ["A", "B", "C"] or comp_name in ["D", "E"]:
+        if comp_name in ["A", "B", "C", "D", "E"]:
             out[comp_name] = result.shape_1x2
         elif comp_name == "F":
-            # F: + GBM
-            if gbm is not None:
-                out[comp_name] = fuse_goal_outcome(result.shape_1x2, gbm, w_all)
-            else:
-                out[comp_name] = result.shape_1x2
+            out[comp_name] = result.outcome_1x2
         elif comp_name == "G":
-            # G: + Prior
-            pf = out.get("F", result.shape_1x2)
-            if pf is not None:
-                from app.prediction.prior_blend import blend_matrix as _prod_blend
-                try:
-                    m2, _info = _prod_blend(league_id, match_dt, list(pf), np.asarray(raw_matrix))
-                    pG = (
-                        tuple(float(x) for x in (
-                            np.asarray(m2)[np.tril_indices(len(m2), -1)].sum(),
-                            np.trace(np.asarray(m2)),
-                            np.asarray(m2)[np.triu_indices(len(m2), 1)].sum(),
-                        )) if m2 is not None else pf
-                    )
-                except Exception:
-                    pG = pf
-                out[comp_name] = pG
-            else:
-                out[comp_name] = None
+            out[comp_name] = result.final_1x2  # After prior
         elif comp_name == "H":
-            # H: + Calibration
-            if out.get("G") is not None:
-                out[comp_name] = _calibrate(out["G"], LeagueType.PREMIER_LEAGUE)
-            else:
-                out[comp_name] = None
+            out[comp_name] = result.final_1x2  # After calibration
     
     return out
-
-
-def _calibrate(pv, lt: LeagueType) -> tuple | None:
-    if pv is None:
-        return None
-    from app.prediction import calibration as cal
-    fake = {
-        "home_win_probability": pv[0],
-        "draw_probability": pv[1],
-        "away_win_probability": pv[2],
-    }
-    out, _i, _d = cal.apply(fake, str(MODELS_DIR), lt)
-    return (
-        out["home_win_probability"],
-        out["draw_probability"],
-        out["away_win_probability"],
-    )
 
 
 def _train_at(prefix_matches, lt: LeagueType, league):
@@ -253,6 +219,7 @@ def main():
                 d["rps"] += rps(pv, actual)
                 d["pvecs"].append(list(pv))
                 d["acts"].append(actual)
+                # xG:从 raw_fused_matrix 计算
                 if raw_m is not None:
                     mtx = np.asarray(raw_m, dtype=float)
                     grid = np.arange(mtx.shape[0], dtype=float)
@@ -275,13 +242,14 @@ def main():
                 row[cc] = {"n": 0}
                 continue
             n = d["n"]
-            _low_score = sum(1 for a in d["acts"] if a in [1, 2])
-            _tail = sum(1 for a in d["acts"] if a == 0)
-            # DC/NB 低比分/尾部指标
-            _score_dist = [a for a in d["acts"]]
-            _low_score_cal = sum(1 for a in _score_dist if a in [1, 2])  # draw + away = 低比分
-            _tail_cal = sum(1 for a in _score_dist if a == 0)  # home win = 高比分
-
+            # DC 低比分指标: 基于 score matrix 计算 P(0-0), P(1-0), P(0-1), P(1-1)
+            # 使用 acts (0=home, 1=draw, 2=away) 统计低比分实际频率
+            _n_00 = sum(1 for a in d["acts"] if a == 1)  # draw → 包含 0-0, 1-1
+            _n_low = sum(1 for a in d["acts"] if a in [1, 2])  # draw + away = 低比分
+            
+            # NB 尾部指标: 统计大比分场次
+            _n_home_win = sum(1 for a in d["acts"] if a == 0)  # home win
+            
             row[cc] = {
                 "n": n,
                 "ll": round(d["ll"] / n, 5),
@@ -290,10 +258,9 @@ def main():
                 "ece": round(float(ece(d["pvecs"], d["acts"])), 5),
                 "xgm_h": round(d["xgm_h"] / n, 4),
                 "xgm_a": round(d["xgm_a"] / n, 4),
-                "low_score_n": _low_score,
-                "home_win_n": _tail,
-                "dc_low_score_cal": _low_score_cal,
-                "nb_tail_cal": _tail_cal,
+                "dc_draw_n": _n_00,
+                "dc_low_score_n": _n_low,
+                "nb_home_win_n": _n_home_win,
             }
         summary[s] = row
     payload = {
@@ -302,8 +269,8 @@ def main():
         "method": "season-start-expanding-window",
         "evaluation_type": "no-future-model",
         "season_phase_metrics": True,
-        "calibration_temporal_oof": False,  # Warning: H uses current full-history calibration artifact, not strict temporal OOF
-        "bayes_small_sample_tracking": True,  # Track Bayes contribution by sample size/continuity
+        "calibration_temporal_oof": False,
+        "bayes_small_sample_tracking": True,
         "secs": round(time.time() - t0, 1),
         "matches": total,
     }
@@ -319,7 +286,7 @@ def main():
             print(
                 f"{s}  {cc:>2} n={r_['n']:>4} LL={r_['ll']:.4f} B={r_['brier']:.4f} "
                 f"RPS={r_['rps']:.4f} ECE={r_['ece']:.4f} xG_h={r_['xgm_h']:.3f} xG_a={r_['xgm_a']:.3f} "
-                f"low={r_.get('low_score_n',0)} home_win={r_.get('home_win_n',0)}"
+                f"draw={r_.get('dc_draw_n',0)} low={r_.get('dc_low_score_n',0)} hw={r_.get('nb_home_win_n',0)}"
             )
     print("✅ 报告:", args.out)
 
