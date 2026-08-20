@@ -60,7 +60,13 @@ def predict_match(
     if league is None:
         raise ValueError(f"数据库中还没有 {league_type.value} 的联赛数据")
 
-    match_dt = pd.Timestamp(match_date) if match_date else pd.Timestamp.now()
+    from app.core.timeutil import as_utc_naive
+
+    match_dt = (
+        as_utc_naive(match_date)
+        if match_date
+        else as_utc_naive(pd.Timestamp.now())
+    )
 
     # 数据版本聚合(热缓存命中无需加载历史)
     from app.api.db import db as _db

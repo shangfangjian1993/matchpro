@@ -12,7 +12,7 @@ import math
 
 import numpy as np
 
-MAX_GOALS = 10
+MAX_GOALS = 10  # 回滚:dc.py/nb.py 硬编码 range(10),保持矩阵尺寸一致
 
 
 def pois_pmf(lam: float, k: int) -> float:
