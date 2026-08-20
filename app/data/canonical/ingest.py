@@ -233,8 +233,6 @@ def upsert_matches(matches: list[NormalizedMatch], source: str = "canonical") ->
                         _rec2 = maybe_update(
                             old, nm, source, orientation=orientation
                         )
-                        if _rec2 == "conflict":
-                            changed = False
                     # 指标字段只补空(不覆盖已存在的真实值)
                     changed = (
                         _apply_fields(old, nm, merge_only=True, orientation=orientation)

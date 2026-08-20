@@ -68,11 +68,7 @@ class ContextBuilder:
         matched_match_id = matched.id if matched else None
         from app.core.timeutil import as_utc_naive
 
-        match_dt = (
-            as_utc_naive(match_date)
-            if match_date
-            else as_utc_naive(pd.Timestamp.now())
-        )
+        match_dt = as_utc_naive(match_date if match_date else pd.Timestamp.now())
 
         # hist_limit 语义 = global chronological history(联赛级最近 N 场,时间窗口);
         # 团队级滚动由后续特征层在 hist_df 内按队计算,此处只约束时间范围上限。

@@ -7,13 +7,15 @@ datetime.utcnow() 自 Python 3.12 起弃用(且不明确时区语义),
 
 from datetime import datetime, timezone
 
+import pandas as pd
+
 
 def utcnow() -> datetime:
     """当前 UTC 时间(naive,与 datetime.utcnow() 语义一致,无弃用警告)。"""
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 def as_utc_naive(value):
-    """统一时间基准(审查 e752f5f P1-13/14)。
+    """统一时间基准。
 
     所有 cutoff/compare 都以 **UTC naive** 为锚:world aware → 转 UTC 并去
     tzinfo;naive 视为 UTC 原样。避免 tz-naive/tz-aware 混比 TypeError 或
@@ -22,8 +24,6 @@ def as_utc_naive(value):
     if value is None:
         return None
     try:
-        import pandas as pd
-
         ts = pd.Timestamp(value)
     except Exception:
         return value

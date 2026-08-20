@@ -546,10 +546,10 @@ def import_recent(
             else None
         )
 
-        def _find(nm, _res=_resolver):
-            if _res is None:
+        def _find(nm):
+            if _resolver is None:
                 return None, "SAME"
-            _r = _res.resolve(nm.home_team, nm.away_team, nm.date)
+            _r = _resolver.resolve(nm.home_team, nm.away_team, nm.date)
             return _r.match, _r.orientation
 
         inserted_list, updated, errors = [], 0, 0

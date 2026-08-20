@@ -87,6 +87,7 @@ def init_db(database_url: str | None = None):
         return
     kwargs = {}
     if url.startswith("sqlite"):
+        # 12× SQLite 默认超时(5s):避免并发写(采集进程+预测)时 OperationalError
         kwargs["connect_args"] = {"check_same_thread": False, "timeout": 60}
     _engine = create_engine(url, pool_pre_ping=True, **kwargs)
     _session_factory = sessionmaker(bind=_engine, expire_on_commit=False)
