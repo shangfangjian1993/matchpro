@@ -54,22 +54,31 @@ def compute_members(
     gl = lay["goal_lambda"]
     sd = lay["score_distribution"]
 
-    # Layer-1:独立 λ 融合(hgbr/elo/bayes;bayes 兜底=hgbr 与旧矩阵口径一致)
-    bh_ = lam_bh if lam_bh is not None else lam_h
-    ba_ = lam_ba if lam_ba is not None else lam_a
-    _gs = gl.get("hgbr", 0.0) + gl.get("elo", 0.0) + gl.get("bayes", 0.0)
+    # Layer-1:独立 λ 融合(hgbr/elo/bayes;缺失成员 mask + 权重归一)
+    bh_ = lam_bh
+    ba_ = lam_ba
+    
+    # 确定有效成员(缺失成员不隐式替代,而是重新归一化)
+    _active_gl = {}
+    for _name in ["hgbr", "elo", "bayes"]:
+        if _name == "bayes" and (lam_bh is None or lam_ba is None):
+            continue  # Bayes 缺失 → mask
+        if gl.get(_name, 0) > 0:
+            _active_gl[_name] = gl[_name]
+    
+    _gs = sum(_active_gl.values())
     if _gs <= 0:
         fh, fa = lam_h, lam_a
     else:
         fh = (
-            gl.get("hgbr", 0.0) * lam_h
-            + gl.get("elo", 0.0) * lam_eh
-            + gl.get("bayes", 0.0) * bh_
+            _active_gl.get("hgbr", 0.0) * lam_h
+            + _active_gl.get("elo", 0.0) * lam_eh
+            + _active_gl.get("bayes", 0.0) * (bh_ or 0.0)
         ) / _gs
         fa = (
-            gl.get("hgbr", 0.0) * lam_a
-            + gl.get("elo", 0.0) * lam_ea
-            + gl.get("bayes", 0.0) * ba_
+            _active_gl.get("hgbr", 0.0) * lam_a
+            + _active_gl.get("elo", 0.0) * lam_ea
+            + _active_gl.get("bayes", 0.0) * (ba_ or 0.0)
         ) / _gs
 
     # Layer-2:Shape Ensemble(全部基于 fused λ)—— Poison 基 + DC + NB
@@ -90,7 +99,7 @@ def compute_members(
         "dc": dc_probs(lam_h, lam_a, tau),
         "nb": nb_probs(lam_h, lam_a, phi),
         "elo": match_probs(lam_eh, lam_ea),
-        "bayes": match_probs(bh_, ba_),
+        "bayes": match_probs(bh_, ba_) if bh_ is not None else match_probs(lam_h, lam_a),
     }
     return {
         "members": members,

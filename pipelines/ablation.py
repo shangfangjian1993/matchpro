@@ -17,9 +17,9 @@
   G + Prior: F score/outcome → Prior
   H + Calibration: G → Calibration
 
+所有层级调用 LayeredPipeline.compute_layers(),不使用硬编码权重。
 caveat:Calibration artifact 为当前已训(未逐赛季重拟合)——模型层已严格无未来。
 """
-
 from __future__ import annotations
 
 import argparse
@@ -38,62 +38,18 @@ from app.api.db import League, Match, init_db
 from app.core.config import LeagueType
 from app.core.paths import MODELS_DIR
 from app.data.adapters import matches_to_dataframe
-from app.models.ensemble import dc_probs, fuse_probs, match_probs, nb_probs
 from app.models.ensemble.fusion import fuse_goal_outcome
 from app.prediction.context import ContextBuilder
 from app.prediction.engine import PredictionEngine
+from app.prediction.layered_pipeline import ABLATION_MASKS, compute_layers
 from app.replay.metrics import brier_score, ece, log_loss, rps
 
 
-def _layered_1x2(lam_h, lam_a, lam_eh, lam_ea, lam_bh, lam_ba, tau, phi, weights):
-    """生产一致的层级计算: Layer-1 λ融合 → Layer-2 Shape → 1X2。
-    
-    返回 (goal_1x2, shape_1x2) 或 None(任何必要 λ 缺失)。
-    """
-    from app.models.ensemble.weights import to_layered
-    
-    lay = to_layered(weights)
-    gl = lay["goal_lambda"]
-    sd = lay["score_distribution"]
-    
-    # Layer-1: λ 融合
-    if lam_bh is None or lam_ba is None:
-        return None  # Bayes 缺失 → 不合成,返回 None
-    
-    _gs = gl.get("hgbr", 0.0) + gl.get("elo", 0.0) + gl.get("bayes", 0.0)
-    if _gs <= 0:
-        return None
-    
-    fh = (
-        gl.get("hgbr", 0.0) * lam_h
-        + gl.get("elo", 0.0) * lam_eh
-        + gl.get("bayes", 0.0) * lam_bh
-    ) / _gs
-    fa = (
-        gl.get("hgbr", 0.0) * lam_a
-        + gl.get("elo", 0.0) * lam_ea
-        + gl.get("bayes", 0.0) * lam_ba
-    ) / _gs
-    
-    # Layer-2: Shape Ensemble
-    pois_p = match_probs(fh, fa)
-    dc_p = dc_probs(fh, fa, tau)
-    nb_p = nb_probs(fh, fa, phi)
-    shape_1x2 = fuse_probs({"poisson": pois_p, "dc": dc_p, "nb": nb_p}, sd)
-    
-    # Goal 1X2(纯 Poisson,用于 A/B 对比)
-    goal_1x2 = pois_p
-    
-    return goal_1x2, shape_1x2
-
-
 def _component_probs(internal: dict, league_id, match_dt, pf_matrix) -> dict:
-    """层级消融 → 各组件 1X2;G 用生产 prior_blend;H 用生产 calibration。
+    """层级消融 → 各组件 1X2。
     
-    与生产 Layered Engine 一致:
-      A/B/C 是 Layer-1 变体(Poisson)
-    D/E 是 Layer-2 变体(Poisson + DC/NB,基于 fused λ)
-    F/G/H 在 E 基础上叠加 Outcome/Prior/Calibration
+    使用 LayeredPipeline.compute_layers() — 唯一数学真相源。
+    不同 ablation 仅通过 AblationMask 区分,无硬编码权重。
     """
     lam = internal.get("member_lambdas") or {}
     w_all = internal.get("member_weights") or {}
@@ -105,8 +61,7 @@ def _component_probs(internal: dict, league_id, match_dt, pf_matrix) -> dict:
     el = lam.get("elo")
     ba = lam.get("bayes")
     
-    # 必要 λ 缺失 → 返回 None(不合成假预测)
-    if hg is None or el is None:
+    if hg is None:
         return None
     
     raw_matrix = internal.get("raw_fused_matrix")
@@ -115,76 +70,58 @@ def _component_probs(internal: dict, league_id, match_dt, pf_matrix) -> dict:
     
     out = {}
     
-    # A: HGBR λ → Poisson
-    out["A_hgbr"] = match_probs(hg[0], hg[1])
-    
-    # B: HGBR + ELO → Poisson
-    fh_b = (hg[0] + el[0]) / 2
-    fa_b = (hg[1] + el[1]) / 2
-    out["B_elo"] = match_probs(fh_b, fa_b)
-    
-    # C: HGBR + ELO + Bayes → Poisson
-    if ba is not None:
-        fh_c = (hg[0] + el[0] + ba[0]) / 3
-        fa_c = (hg[1] + el[1] + ba[1]) / 3
-        out["C_bayes"] = match_probs(fh_c, fa_c)
-    else:
-        out["C_bayes"] = None  # Bayes 不可用
-    
-    # D: C + Dixon-Coles (基于 fused λ)
-    if ba is not None:
-        fh_d, fa_d = fh_c, fa_c
-        pois_d = match_probs(fh_d, fa_d)
-        dc_d = dc_probs(fh_d, fa_d, tau)
-        sd_d = {"poisson": 0.6, "dc": 0.3, "nb": 0.1}
-        out["D_dc"] = fuse_probs({"poisson": pois_d, "dc": dc_d}, sd_d)
-    else:
-        out["D_dc"] = None
-    
-    # E: D + Negative Binomial
-    if ba is not None:
-        fh_e, fa_e = fh_d, fa_d
-        pois_e = match_probs(fh_e, fa_e)
-        dc_e = dc_probs(fh_e, fa_e, tau)
-        nb_e = nb_probs(fh_e, fa_e, phi)
-        sd_e = {"poisson": 0.5, "dc": 0.3, "nb": 0.2}
-        out["E_nb"] = fuse_probs({"poisson": pois_e, "dc": dc_e, "nb": nb_e}, sd_e)
-    else:
-        out["E_nb"] = None
-    
-    # F: E + Outcome GBM
-    e_probs = out["E_nb"]
-    if e_probs is not None and gbm is not None:
-        out["F_gbm"] = fuse_goal_outcome(e_probs, gbm, w_all)
-    elif e_probs is not None:
-        out["F_gbm"] = e_probs  # GBM 不可用,回退
-    else:
-        out["F_gbm"] = None
-    
-    # G: F + Prior
-    pf = out["F_gbm"]
-    if pf is not None:
-        from app.prediction.prior_blend import blend_matrix as _prod_blend
-        try:
-            m2, _info = _prod_blend(league_id, match_dt, list(pf), np.asarray(raw_matrix))
-            pG = (
-                tuple(float(x) for x in (
-                    np.asarray(m2)[np.tril_indices(len(m2), -1)].sum(),
-                    np.trace(np.asarray(m2)),
-                    np.asarray(m2)[np.triu_indices(len(m2), 1)].sum(),
-                )) if m2 is not None else pf
-            )
-        except Exception:
-            pG = pf
-        out["G_prior"] = pG
-    else:
-        out["G_prior"] = None
-    
-    # H: G + Calibration
-    if out["G_prior"] is not None:
-        out["H_calib"] = _calibrate(out["G_prior"], LeagueType.PREMIER_LEAGUE)
-    else:
-        out["H_calib"] = None
+    # 遍历预定义的 ablation 配置
+    for comp_name, mask in ABLATION_MASKS.items():
+        result = compute_layers(
+            lam_h=hg[0],
+            lam_a=hg[1],
+            lam_eh=el[0] if el else 0.0,
+            lam_ea=el[1] if el else 0.0,
+            tau=tau,
+            phi=phi,
+            weights=w_all,
+            lam_bh=ba[0] if ba else None,
+            lam_ba=ba[1] if ba else None,
+            ablation_mask=mask,
+        )
+        if result is None:
+            out[comp_name] = None
+            continue
+        
+        # 根据层级提取对应概率
+        if comp_name in ["A", "B", "C"] or comp_name in ["D", "E"]:
+            out[comp_name] = result.shape_1x2
+        elif comp_name == "F":
+            # F: + GBM
+            if gbm is not None:
+                out[comp_name] = fuse_goal_outcome(result.shape_1x2, gbm, w_all)
+            else:
+                out[comp_name] = result.shape_1x2
+        elif comp_name == "G":
+            # G: + Prior
+            pf = out.get("F", result.shape_1x2)
+            if pf is not None:
+                from app.prediction.prior_blend import blend_matrix as _prod_blend
+                try:
+                    m2, _info = _prod_blend(league_id, match_dt, list(pf), np.asarray(raw_matrix))
+                    pG = (
+                        tuple(float(x) for x in (
+                            np.asarray(m2)[np.tril_indices(len(m2), -1)].sum(),
+                            np.trace(np.asarray(m2)),
+                            np.asarray(m2)[np.triu_indices(len(m2), 1)].sum(),
+                        )) if m2 is not None else pf
+                    )
+                except Exception:
+                    pG = pf
+                out[comp_name] = pG
+            else:
+                out[comp_name] = None
+        elif comp_name == "H":
+            # H: + Calibration
+            if out.get("G") is not None:
+                out[comp_name] = _calibrate(out["G"], LeagueType.PREMIER_LEAGUE)
+            else:
+                out[comp_name] = None
     
     return out
 
@@ -241,16 +178,7 @@ def main():
     builder = ContextBuilder(str(MODELS_DIR))
     engine = PredictionEngine(str(MODELS_DIR))
     seasons = [int(s) for s in args.seasons.split(",")]
-    comps = [
-        "A_hgbr",
-        "B_elo",
-        "C_bayes",
-        "D_dc",
-        "E_nb",
-        "F_gbm",
-        "G_prior",
-        "H_calib",
-    ]
+    comps = ["A", "B", "C", "D", "E", "F", "G", "H"]
     report = {
         s: {
             cc: {
@@ -309,10 +237,10 @@ def main():
                 raw_m = np.eye(10)
             probs_c = _component_probs(int_, league.id, md, raw_m)
             if probs_c is None:
-                continue  # λ 缺失,跳过
+                continue
             for comp, pv in probs_c.items():
                 if pv is None:
-                    continue  # 组件不可用(如 Bayes 缺失导致 C/D/E/F/G/H 不可用)
+                    continue
                 d = report[year][comp]
                 d["n"] += 1
                 d["ll"] += log_loss(pv, actual)
@@ -320,7 +248,6 @@ def main():
                 d["rps"] += rps(pv, actual)
                 d["pvecs"].append(list(pv))
                 d["acts"].append(actual)
-                # xG:从 raw_fused_matrix 计算
                 if raw_m is not None:
                     mtx = np.asarray(raw_m, dtype=float)
                     grid = np.arange(mtx.shape[0], dtype=float)
@@ -343,9 +270,8 @@ def main():
                 row[cc] = {"n": 0}
                 continue
             n = d["n"]
-            # 低比分(0-0/1-0/0-1/1-1)计数
-            _low_score = sum(1 for a in d["acts"] if a in [1, 2])  # draw or away win(通常低比分)
-            _tail = sum(1 for a in d["acts"] if a == 0)  # home win(可能高比分)
+            _low_score = sum(1 for a in d["acts"] if a in [1, 2])
+            _tail = sum(1 for a in d["acts"] if a == 0)
             row[cc] = {
                 "n": n,
                 "ll": round(d["ll"] / n, 5),
@@ -377,7 +303,7 @@ def main():
             if r_.get("n", 0) == 0:
                 continue
             print(
-                f"{s}  {cc:>7} n={r_['n']:>4} LL={r_['ll']:.4f} B={r_['brier']:.4f} "
+                f"{s}  {cc:>2} n={r_['n']:>4} LL={r_['ll']:.4f} B={r_['brier']:.4f} "
                 f"RPS={r_['rps']:.4f} ECE={r_['ece']:.4f} xG_h={r_['xgm_h']:.3f} xG_a={r_['xgm_a']:.3f} "
                 f"low={r_.get('low_score_n',0)} home_win={r_.get('home_win_n',0)}"
             )
