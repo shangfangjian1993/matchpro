@@ -31,9 +31,22 @@ logger = logging.getLogger(__name__)
 BASE = "https://sports.bzzoiro.com/api/v2/_"
 
 
-def _key() -> str:
-    k = os.environ.get("BZZOIRO_KEY") or ""
-    if not k:
+# 多 key 自动轮换(遇到 429 自动切换下一个)
+_KEYS = None
+_KEY_INDEX = 0
+
+
+def _load_keys() -> list[str]:
+    global _KEYS
+    if _KEYS is not None:
+        return _KEYS
+    _KEYS = []
+    # 1. 环境变量
+    _env_key = os.environ.get("BZZOIRO_KEY", "").strip()
+    if _env_key:
+        _KEYS.append(_env_key)
+    # 2. .env 文件
+    try:
         with open(
             os.path.join(
                 str(
@@ -46,12 +59,37 @@ def _key() -> str:
             for line in _env_f:
                 if line.startswith("BZZOIRO_KEY"):
                     k = line.split("=", 1)[1].strip()
-                    break
-    return k
+                    if k and k not in _KEYS:
+                        _KEYS.append(k)
+    except Exception:
+        pass
+    # 3. /opt/data/bzzoiro_keys.txt
+    try:
+        with open("/opt/data/bzzoiro_keys.txt", encoding="utf-8") as _kf:
+            for line in _kf:
+                k = line.strip()
+                if k and k not in _KEYS:
+                    _KEYS.append(k)
+    except Exception:
+        pass
+    return _KEYS
+
+
+def _key() -> str:
+    keys = _load_keys()
+    if not keys:
+        return ""
+    return keys[_KEY_INDEX % len(keys)]
+
+
+def _rotate_key() -> None:
+    """遇到 429 时切换到下一个 key。"""
+    global _KEY_INDEX
+    _KEY_INDEX = (_KEY_INDEX + 1) % max(1, len(_load_keys()))
 
 
 def available() -> bool:
-    return bool(_key())
+    return bool(_load_keys())
 
 
 def _get(path: str, params: dict | None = None) -> dict:
@@ -59,52 +97,38 @@ def _get(path: str, params: dict | None = None) -> dict:
     import time
     import urllib.request
 
-    url = f"{BASE.replace('_', '')}{path.lstrip('/')}"
+    keys = _load_keys()
+    if not keys:
+        raise RuntimeError("无可用 BZZOIRO_KEY")
+
+    url = BASE.replace('_', '') + path.lstrip('/')
     if params:
         import urllib.parse
-
         url += "?" + urllib.parse.urlencode(
             {k: v for k, v in params.items() if v is not None}
         )
-    req = urllib.request.Request(
-        url, headers={"Authorization": f"Token {_key()}", "Accept": "application/json"}
-    )
-    for attempt in range(3):
-        try:
-            with urllib.request.urlopen(req, timeout=25) as r:
-                return json.load(r)
-        except urllib.error.HTTPError as e:
-            if e.code == 429 and attempt < 2:
-                time.sleep(2 * (attempt + 1))
-                continue
-            raise
-        except Exception:
-            time.sleep(1.0)
-    raise RuntimeError("bzzoiro 请求重试耗尽")
 
-
-# stats 字段映射(API key → DB column)
-_STATS_MAP = {
-    "expected_goals": "xg",
-    "total_shots": "shots",
-    "shots_on_target": "shots_on_target",
-    "ball_possession": "possession",
-    "corner_kicks": "corners",
-    "yellow_cards": "yellow_cards",
-    "red_cards": "red_cards",
-    "fouls": "fouls",
-    "offsides": "offsides",
-    "tackles": "tackles",
-    "interceptions": "interceptions",
-    "clearances": "clearances",
-    "blocked_shots": "blocked_shots",
-    "big_chances": "big_chances",
-    "total_saves": "total_saves",
-    "shots_inside_box": "shots_inside_box",
-    "shots_outside_box": "shots_outside_box",
-}
-
-
+    # 尝试所有 key,遇到 429 自动轮换
+    for _key_attempt in range(len(keys)):
+        current_key = _key()
+        req = urllib.request.Request(
+            url, headers={"Authorization": f"Token {current_key}", "Accept": "application/json"}
+        )
+        for attempt in range(3):
+            try:
+                with urllib.request.urlopen(req, timeout=25) as r:
+                    return json.load(r)
+            except urllib.error.HTTPError as e:
+                if e.code == 429:
+                    _rotate_key()
+                    break  # 换下一个 key
+                if attempt < 2:
+                    time.sleep(2 * (attempt + 1))
+                    continue
+                raise
+            except Exception:
+                time.sleep(1.0)
+    raise RuntimeError("bzzoiro 所有 key 均耗尽或请求失败")
 def fetch_events(
     league_id: int | None = None,
     status: str | None = None,
@@ -508,7 +532,7 @@ def import_recent(
         d0["results"][0]["event_date"].replace("Z", "+00:00")
     )
     last_season = latest.year if latest.month >= 8 else latest.year - 1
-    cutoff = _dt.datetime(last_season - seasons + 1, 8, 1, tzinfo=_dt.timezone.utc)
+    cutoff = _dt.datetime(last_season - seasons + 1, 8, 1)
     total = d0.get("count", 0)
 
     rows, ofs = [], 0
