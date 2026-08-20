@@ -119,10 +119,8 @@ def _record_source(old, source: str, aligned_scores: dict):
         home_ht_goals=aligned_scores.get("home_ht_goals"),
         away_ht_goals=aligned_scores.get("away_ht_goals"),
     )
-    # 保留 JSON 兼容字段(回退/审计)
-    prof = _source_profile(old)
-    prof[source] = {f: aligned_scores.get(f) for f in _SCORE_FIELDS}
-    old.source_scores_json = json.dumps({"sources": prof}, ensure_ascii=False)
+    # JSON 兼容字段已迁移至 match_source_records 表
+    # 保留旧字段读取能力以兼容历史数据,不再写入
 
 
 def _source_consensus(old, aligned_scores: dict) -> dict:
