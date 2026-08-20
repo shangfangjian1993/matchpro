@@ -60,7 +60,6 @@ def _prepare_eval_split(
         prepared_data = prepared_data.sort_values("date", kind="mergesort").reset_index(
             drop=True
         )
-    # 审查 P1-7:按日期分组切分(同一比赛日不跨 train/test)
     from app.models.utils import date_group_split
 
     _trn, _tst = date_group_split(prepared_data, ratio=1 - test_split_ratio)

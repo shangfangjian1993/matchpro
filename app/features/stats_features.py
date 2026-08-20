@@ -77,7 +77,6 @@ def _roll(hist_matches, per_match: dict, windows: tuple = (5,)) -> dict:
         lambda: {
             "home": collections.defaultdict(list),
             "away": collections.defaultdict(list),
-            # 审查 A70A601 P1-8:overall(全部比赛)滚动 —— side-only 历史在
             # "近 10 场含 5 主"等场景只取 5 场信息,量不足,需并行 overall。
             "all": collections.defaultdict(list),
         }

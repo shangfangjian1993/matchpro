@@ -109,7 +109,6 @@ def train_model(
                 json.dump(_art, _af, ensure_ascii=False, indent=2)
         except Exception:
             pass  # 元数据写入失败不影响训练
-        # 审查 P0-8:不再复制 latest 指针文件(引用关系由 active_models.json +
         # 版本文件承担;避免同一模型两份实体)
         # 保留策略:清理超出保留数的旧版本
         _prune_old_versions(league_type, models_dir, keep=_MODELS_KEEP)
@@ -264,7 +263,6 @@ def train_model(
                 ),
                 metrics_json=_json.dumps(
                     {
-                        # 审查 P0-3:各指标口径必须可区分,不得把不同 holdout /
                         # 不同样本量的指标混成一个"模型分数"
                         "poisson_loss": float(_ev.get("poisson_loss", 0.0) or 0.0),
                         "accuracy": float(
@@ -359,7 +357,6 @@ def _holdout_prob_metrics(model, df, target_column: str = "goals") -> dict:
 
     if len(df) < 200:
         return {}
-    # 审查 P1-7:按日期分组切分(同一比赛日不跨 train/test)
     from app.models.utils import date_group_split
 
     hist, test = date_group_split(df, ratio=0.8)

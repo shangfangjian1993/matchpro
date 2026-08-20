@@ -39,7 +39,6 @@ class GbmClassifier:
         from sklearn.ensemble import HistGradientBoostingClassifier
 
         n = len(X)
-        # 审查 P1-7:按日期分组切分(同一比赛日不跨 train/test)
         if "date" in X.columns:
             from app.models.utils import date_group_split
 

@@ -86,7 +86,6 @@ def replay_all(force: bool = False) -> dict:
         if not force
         else PredictionSnapshot.query.all()
     )
-    # 审查 P1-8:N+1 修复 —— 一次查询建内存索引,循环 O(1) 查找
     # (27,825 场规模下逐条 SQL 会非常慢)
     _all_matches = Match.query.filter_by(match_status="finished").all()
     _match_map = {}

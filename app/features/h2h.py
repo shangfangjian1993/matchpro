@@ -101,7 +101,6 @@ def compute_h2h(data: pd.DataFrame) -> pd.DataFrame:
     pair = pair.set_index("index")
 
     prepared = prepared.reset_index(drop=True)
-    # 审查 §21 数值目标:H2H 贡献上限 1~3%% —— 将衰减后均值压缩到
     # [0.5−3%%, 0.5+3%%] 幅值区间,模型能用的只有极小尾巴(而非全历史
     # 等权率冲击)。值域窄 → 即便模型分配权重,贡献也被限制在 ~3%%。
     _cap = 0.03

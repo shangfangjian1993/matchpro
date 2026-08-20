@@ -50,7 +50,6 @@ def main():
             y = np.where(gh > ga, 0, np.where(gh == ga, 1, 2))
             gbm = GbmClassifier()
             m = gbm.train(prepared[cols], pd.Series(y, index=prepared.index))
-            # 审查 P0-4:统一经 paths.MODELS_DIR(artifacts/models/<league>/gbm.pkl)
             from app.core.paths import MODELS_DIR as _MD
 
             _out_dir = os.path.join(str(_MD), lt.value)

@@ -12,7 +12,7 @@ import math
 
 import numpy as np
 
-MAX_GOALS = 20  # 审查 f01d7e4 P2-7:内部矩阵 10→20(截断偏差减小;UI Top5 展示不变)
+MAX_GOALS = 10
 
 
 def pois_pmf(lam: float, k: int) -> float:

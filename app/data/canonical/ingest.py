@@ -223,6 +223,18 @@ def upsert_matches(matches: list[NormalizedMatch], source: str = "canonical") ->
                                 orientation=orientation,
                                 force_override=True,
                             )
+                    # 已完赛既有行收到与 canonical 不同比分 → 走 reconcile:
+                    # 同值=consensus,异值=conflict 保留旧(不静默覆盖)——与
+                    # bzzoiro.merge_league 统一语义(唯一 ingestion 路径)
+                    elif (
+                        nm.match_status == "finished"
+                        and old.match_status == "finished"
+                    ):
+                        _rec2 = maybe_update(
+                            old, nm, source, orientation=orientation
+                        )
+                        if _rec2 == "conflict":
+                            changed = False
                     # 指标字段只补空(不覆盖已存在的真实值)
                     changed = (
                         _apply_fields(old, nm, merge_only=True, orientation=orientation)

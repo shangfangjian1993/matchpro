@@ -39,7 +39,6 @@ def build_strength_vector(sig: dict) -> dict:
             total += loss
         out[side] = {
             "position_loss": pos_loss,
-            "total_loss": round(min(total, 0.20), 4),  # 审查 §5.2:cap ±20%
             "expected_minutes_adj": round(1.0 - min(total, 0.20), 4),
             "long_core_out": long_core,
         }

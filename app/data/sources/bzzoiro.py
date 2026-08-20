@@ -83,6 +83,28 @@ def _get(path: str, params: dict | None = None) -> dict:
     raise RuntimeError("bzzoiro 请求重试耗尽")
 
 
+# stats 字段映射(API key → DB column)
+_STATS_MAP = {
+    "expected_goals": "xg",
+    "total_shots": "shots",
+    "shots_on_target": "shots_on_target",
+    "ball_possession": "possession",
+    "corner_kicks": "corners",
+    "yellow_cards": "yellow_cards",
+    "red_cards": "red_cards",
+    "fouls": "fouls",
+    "offsides": "offsides",
+    "tackles": "tackles",
+    "interceptions": "interceptions",
+    "clearances": "clearances",
+    "blocked_shots": "blocked_shots",
+    "big_chances": "big_chances",
+    "total_saves": "total_saves",
+    "shots_inside_box": "shots_inside_box",
+    "shots_outside_box": "shots_outside_box",
+}
+
+
 def fetch_events(
     league_id: int | None = None,
     status: str | None = None,
@@ -244,128 +266,22 @@ def _norm(name: str) -> str:
 
 
 def merge_league(
-    league_type_value: str, since_year: int | None = None, verbose: bool = True
+    league_type_value: str,
+    since_year: int | None = None,
+    verbose: bool = True,
 ) -> dict:
-    """按 bzzoiro 主导覆盖合并(bzzoiro 是权威覆盖源)。
+    """(弃用封装)与 import_league 合并 —— 唯一 ingestion 路径
+    fetch → normalize → CanonicalMatchResolver → reconcile。
 
-    对 bzzoiro 每场:归一队名在 DB 同联赛(±3 天)找旧行 —— 找到则更新
-    (保留 id/球队实体,比分/时间以 bzzoiro 为准);否则新增。
-    返回 {"fetched":n,"updated":n,"inserted":n,"errors":n}。
+    早期 merge_league 承担"bzzoiro 权威覆盖"专用更新;统一后 upsert_matches
+    已含 resolver + reconcile(同值 consensus/异值 conflict 保留旧),故本函数
+    仅是 import_league 的兼容别名,不再有第二套 ingest 管线。
     """
-    from app.api.db import League, Match, db, session_scope
-    from app.data.canonical.ingest import upsert_matches
+    import warnings as _w
 
-    league_id = LEAGUE_IDS.get(league_type_value)
-    if league_id is None:
-        raise ValueError(f"bzzoiro 未映射: {league_type_value}")
+    _w.warn("merge_league 已并入 import_league,请改用它", DeprecationWarning)
+    return import_league(league_type_value, since_year=since_year, verbose=verbose)
 
-    rows, offset, limit = [], 0, 100
-    while True:
-        d = _get(
-            "/events/",
-            {
-                "league_id": league_id,
-                "status": "finished",
-                "limit": limit,
-                "offset": offset,
-            },
-        )
-        batch = d.get("results") or []
-        raw_len = len(batch)
-        if not batch:
-            break
-        if since_year:
-            batch = [
-                b
-                for b in batch
-                if _dt.datetime.fromisoformat(b["event_date"].replace("Z", "+00:00"))
-                .date()
-                .year
-                >= since_year
-            ]
-        rows.extend(batch)
-        total = d.get("count", 0)
-        offset += limit
-        if offset >= total or raw_len < limit:
-            break
-        _time.sleep(0.35)
-
-    insert_new, update_existing, errors = [], 0, 0
-    with session_scope():
-        league = League.query.filter_by(league_type=league_type_value).first()
-        if league is None:
-            league = League(league_type=league_type_value, name=league_type_value)
-            db.session.add(league)
-            db.session.flush()
-        # 唯一 Match Identity:统一 CanonicalMatchResolver(域单一入口,含
-        # 正则向与 ±1 天容差;REVERSED 匹配绝不反向污染 canonical 方向)
-        from app.data.canonical.reconcile import maybe_update
-        from app.data.canonical.resolver import CanonicalMatchResolver
-
-        _resolver = CanonicalMatchResolver().index_matches(
-            Match.query.filter_by(league_id=league.id).all()
-        )
-
-        def _find(raw):
-            d0 = _dt.datetime.fromisoformat(
-                raw["event_date"].replace("Z", "+00:00")
-            ).date()
-            _r = _resolver.resolve(raw["home_team"], raw["away_team"], d0)
-            return _r.match, _r.orientation
-
-        for r in rows:
-            try:
-                nm = to_normalized(r, league_type_value)
-                old, orientation = _find(r)
-                if old is not None:
-                    from app.data.canonical.reconcile import maybe_update
-
-                    _rec = maybe_update(old, nm, "bzzoiro", orientation=orientation)
-                    update_existing += 1
-                else:
-                    insert_new.append(nm)
-            except Exception:
-                errors += 1
-        db.session.flush()
-    res = (
-        upsert_matches(insert_new, source="bzzoiro")
-        if insert_new
-        else {"inserted": 0, "updated": 0, "skipped": 0, "errors": []}
-    )
-    if verbose:
-        print(
-            f"  {league_type_value}: 拉取 {len(rows)} | 更新 {update_existing} | "
-            f"新增 {res['inserted']} | 错误 {errors}",
-            flush=True,
-        )
-    return {
-        "fetched": len(rows),
-        "updated": update_existing,
-        "inserted": res["inserted"],
-        "errors": errors + len(res.get("errors", [])),
-    }
-
-
-# ── 子资源采集:stats → team_match_stats;odds → match_odds ──────────────
-_STATS_MAP = {
-    "expected_goals": "xg",
-    "total_shots": "shots",
-    "shots_on_target": "shots_on_target",
-    "ball_possession": "possession",
-    "corner_kicks": "corners",
-    "yellow_cards": "yellow_cards",
-    "red_cards": "red_cards",
-    "fouls": "fouls",
-    "offsides": "offsides",
-    "tackles": "tackles",
-    "interceptions": "interceptions",
-    "clearances": "clearances",
-    "blocked_shots": "blocked_shots",
-    "big_chances": "big_chances",
-    "total_saves": "total_saves",
-    "shots_inside_box": "shots_inside_box",
-    "shots_outside_box": "shots_outside_box",
-}
 
 
 def _event_match_index(league_type_value: str):
@@ -576,10 +492,10 @@ def ingest_odds(
 def import_recent(
     league_type_value: str, seasons: int = 1, verbose: bool = True
 ) -> dict:
-    """近 N 季增量 merge(轻量,供 daily 采集)”—— 只处理最近 N 季事件。
+    """近 N 季增量 merge(轻量,供 daily 采集)—— 只处理最近 N 季事件。
 
-    相比 merge_league 全量:直接按事件 offset 翻页,早于截止页快进;
-    对命中页逐场 merge 更新比分/半场。返回 {"fetched","updated","inserted"}。
+    统一使用 CanonicalMatchResolver —— 不再自行 home/away exact 查找,
+    避免 A/B 与 B/A 产生第二行 canonical(P0-3 双轨残留清除)。
     """
     from app.api.db import League, Match, db, session_scope
 
@@ -617,31 +533,36 @@ def import_recent(
         if not kept:
             continue  # 旧页快进
 
-    inserted_list, updated, errors = [], 0, 0
     with session_scope():
         league = League.query.filter_by(league_type=league_type_value).first()
-        existing = {}
-        if league is not None:
-            for m in Match.query.filter_by(league_id=league.id).all():
-                hn, an = _norm(m.home_team), _norm(m.away_team)
-                key = (hn, an)
-                existing.setdefault(key, []).append(m)
+        # P0-3:统一 CanonicalMatchResolver(双向解析 + 方向 + ±1 天容差)
+        from app.data.canonical.resolver import CanonicalMatchResolver
+
+        _resolver = (
+            CanonicalMatchResolver().index_matches(
+                Match.query.filter_by(league_id=league.id).all()
+            )
+            if league is not None
+            else None
+        )
+
+        def _find(nm, _res=_resolver):
+            if _res is None:
+                return None, "SAME"
+            _r = _res.resolve(nm.home_team, nm.away_team, nm.date)
+            return _r.match, _r.orientation
+
+        inserted_list, updated, errors = [], 0, 0
         for e in rows:
             try:
                 nm = to_normalized(e, league_type_value)
-                cands = existing.get((_norm(nm.home_team), _norm(nm.away_team))) or []
-                old = next(
-                    (
-                        m
-                        for m in cands
-                        if abs((m.match_date.date() - nm.date.date()).days) <= 1
-                    ),
-                    None,
-                )
+                old, orientation = _find(nm)
                 if old is not None:
                     from app.data.canonical.reconcile import maybe_update
 
-                    _rec = maybe_update(old, nm, "bzzoiro")
+                    _rec = maybe_update(
+                        old, nm, "bzzoiro", orientation=orientation
+                    )
                     updated += 1
                 else:
                     inserted_list.append(nm)

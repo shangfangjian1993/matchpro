@@ -127,7 +127,6 @@ def register(feature_columns: list[str], league_type: str) -> str:
     from app.api.db import FeatureStore, db
 
     version = feature_version(feature_columns)
-    # 审查 §19:formula_hash = 公式规格哈希(规格+实现),与 version() 同源,
     # 不再是 feature name hash(两个概念并存已消除)
     formula_hash = logical_version()
     for f in feature_columns:

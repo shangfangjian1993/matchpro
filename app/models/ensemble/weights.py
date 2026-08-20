@@ -16,7 +16,6 @@ DEFAULT_WEIGHTS = {
     "gbm": 0.0,
     "bayes": 0.0,
 }
-# 审查 f01d7e4 P1-5:Goal / Score / Outcome 三层权重(概念与存储分层)。
 #   goal_lambda        λ 融合: HGBR/ELO/Bayes(独立 λ 成员)
 #   score_distribution 分布形态: Poisson(hgbr+elo+bayes 共享的 Poise 基)/DC/NB
 #   outcome           1×2 分类器: GBM(独立于 λ/矩阵)
@@ -96,13 +95,11 @@ def learn_weights(
     GBM 不可用(加载失败/预测失败)→ 完全从优化中移除,而非以 [0,0,0] 假装存在。
     """
     names_all = ["hgbr", "dc", "nb", "elo", "gbm", "bayes"]
-    # 审查 e752f5f :成员必须**在每个样本**都存在才参与优化 —— 否则
     # 部分缺失成员在融合循环会 KeyError(materialize),且优化用全部样本分母
     _effective = {n: sum(1 for s in samples if n in s) for n in names_all}
     present = [n for n in names_all if _effective[n] >= max(1, 0.9 * len(samples))]
     n = max(1, len(samples))
 
-    # 审查 A70A601 §16:Baseline-aware prior —— 不再默认 "hgbr=1、其余 0"。
     # 旧实现:小样本/新成员 OOF 证据不足时,L2 永远拉向 HGBR → 新成员极难
     # 挑战 HGBR,权重学习有效自由度低(DC/NB 与 HGBR 高度相关时尤其明显)。
     # 新实现:prior 由 **out-of-time OOF 平均负对数似然** 数据驱动
@@ -252,7 +249,6 @@ def load_weights(league_key: str, default: dict | None = None) -> dict:
                 f"ensemble_weights[{league_key}] 应为 dict,实际 {type(_entry).__name__}"
             )
         if _is_layered(_entry):
-            # 审查 f01d7e4 P1-5:三层存储 → 平移回扁平供既有融合消费
             _entry = from_layered(_entry)
         for k in ("hgbr", "dc", "nb", "elo", "gbm", "bayes"):
             if k not in _entry:

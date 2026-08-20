@@ -183,7 +183,6 @@ class BaseFootballModel(ABC):
         self.model = PoissonLossHGBR(**self.config.parameters)
 
         # 时间序列 holdout:前 80% 训练,后 20% 评估(防止样本内评估虚高)
-        # 审查 P1-7:按日期分组切分 —— 同一比赛日不会同时出现在 train/test
         from app.models.utils import date_group_split
 
         _trn, _eva = date_group_split(prepared_data, ratio=0.8)
@@ -219,7 +218,6 @@ class BaseFootballModel(ABC):
         # 评估模型(时间外样本,80% 训练模型口径)
         evaluation = self.model.evaluate(X_eval, y_eval)
 
-        # 审查 P0-2:评估完成后用 100% 数据重训 —— 保存/上线的即生产模型,
         # 而非只吃过前 80% 历史的模型。
         full_weight = self._sample_weights(prepared_data)
         self.model.fit(

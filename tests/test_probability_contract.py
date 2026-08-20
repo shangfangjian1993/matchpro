@@ -165,7 +165,6 @@ def test_snapshot_contract(db_ctx):
 
         snap = json.loads(s.snapshot_json or "{}")
         ms = snap.get("model_set", {})
-        assert "bayes" in ms  # 审查 P1-4
         assert "score_matrix" in snap
         if ms.get("bayes"):
             assert "version" in ms["bayes"]

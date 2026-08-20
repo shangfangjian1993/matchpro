@@ -72,7 +72,6 @@ def default_database_url() -> str:
             return _cfg["default_url"]
     except Exception:
         pass
-    # 审查 §28:数据文件在根 data/football.db(引擎代码在 app/data/)
     return "sqlite:///" + os.path.join(
         os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
         "data",
@@ -88,7 +87,7 @@ def init_db(database_url: str | None = None):
         return
     kwargs = {}
     if url.startswith("sqlite"):
-        kwargs["connect_args"] = {"check_same_thread": False}
+        kwargs["connect_args"] = {"check_same_thread": False, "timeout": 60}
     _engine = create_engine(url, pool_pre_ping=True, **kwargs)
     _session_factory = sessionmaker(bind=_engine, expire_on_commit=False)
     _session = scoped_session(_session_factory)

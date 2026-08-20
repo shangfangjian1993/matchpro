@@ -89,7 +89,6 @@ def run(main_fn) -> int:
     except SystemExit as e:  # argparse 参数错误等
         return int(e.code or 0)
     except Exception as e:
-        # 审查 §35:统一异常 → stderr + exit 1
         from app.core.exceptions import AppError
 
         if isinstance(e, AppError):

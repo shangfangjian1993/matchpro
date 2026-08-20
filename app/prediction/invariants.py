@@ -117,7 +117,6 @@ def validate_prediction(result: dict) -> list[str]:
         if matrix is not None:
             vios += check_matrix(matrix)
             vios += check_matrix_marginal(matrix, probs)
-        # 审查 A70A601 P0-2/3:参照必须是**模型层 fused λ**(独立于矩阵),
         # 而非 expected_xg(矩阵自身期望)——否则"矩阵期望 == 矩阵期望"永远
         # 通过,变成自检。这里真正检测"λ → 最终矩阵"的期望一致性:
         # 若未来新增矩阵成员却忘记计入 fused λ,会在此被抓住。

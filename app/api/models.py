@@ -103,7 +103,6 @@ def delete_model(model_id: int, admin=Depends(require_admin)):
     record = db.session.get(ModelRecord, model_id)
     if record is None:
         raise HTTPException(404, "模型不存在")
-    # 审查 §6:删除 artifacts/<league>/ 下的全部资产(与当前目录结构一致)
     removed = []
     _art_dir = os.path.join(MODELS_DIR, record.league_type)
     for pat in (

@@ -30,7 +30,6 @@ def _cfg() -> dict:
         return {}
 
 
-# 审查 A70A601 P1-6:多尺度近期窗口(20/50/100/250),替代固定 100。
 # 100 场 ≈2.6 赛季,已跨越教练/阵容/升降级 —— 不能承载全部近期信息;
 # 短窗(最近)体现即时漂移,长窗提供稳定基准。
 PRIOR_WINDOWS = (20, 50, 100, 250)
@@ -147,7 +146,6 @@ def blend_matrix(league_id, cutoff_dt, probs, matrix):
     cfg = _cfg()
     if not cfg.get("enabled", True):
         return None, None
-    # 审查 A70A601 P1-6:多尺度近窗(替代固定 100)
     windows = tuple(int(x) for x in (cfg.get("windows") or PRIOR_WINDOWS))
     min_history = int(cfg.get("min_history", 20))
     freqs_multi = recent_freqs_multi(

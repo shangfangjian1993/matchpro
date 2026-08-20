@@ -27,7 +27,6 @@ RECENT_KAPPA = 8.0  # 近期状态收缩强度
 HIST_WINDOW = 1000  # 球队历史先验窗口
 RECENT_WINDOW = 200  # 近期窗口
 DECAY_HALFLIFE = 200
-# 审查 f01d7e4 P2-8:日历半衰(天)—— 与场次半衰并存,反映密集赛程/休赛差异
 DECAY_HALFLIFE_DAYS = 400.0  # 时间衰减半衰期(场)
 
 

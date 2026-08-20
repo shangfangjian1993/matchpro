@@ -64,7 +64,6 @@ def save(
         raise RuntimeError("快照失败:无法定位模型文件路径(不可复现)")
     with open(_mpath, "rb") as _mf:
         _model_hash = hashlib.sha256(_mf.read()).hexdigest()[:64]
-    # 审查 P0-4:data_hash = 参与预测历史记录的内容哈希(任何内容修改都可见);
     # hist_max_id/updated 保留为辅助诊断字段
     _data_hash = (
         data_content_hash(hist_df)
@@ -89,7 +88,6 @@ def save(
         _he_a, _ae_a, _att = prematch_elo(hist_df, home_team, away_team, "attack")
     except Exception:
         _he_o = _ae_o = _he_a = _ae_a = _att = None
-    # 审查 A70A601 P1-2:权重损坏(存在但解析/非法)由 load_weights raise、
     # 此处不吞 —— 快照不得在"伪装成默认权重"的状态下生成
     from app.models.ensemble import load_weights
 
@@ -110,7 +108,6 @@ def save(
             _dcp = json.load(_dcp_f).get(league.league_type, {})
     except Exception:
         _dcp = {}
-    # 审查 A70A601 §22:Feature Contribution(HGBR permutation importance)
     _feature_contrib = None
     try:
         _imp = getattr(model, "feature_importance_", None)
@@ -129,7 +126,6 @@ def save(
                 }
     except Exception:
         _feature_contrib = None
-    # 审查 A70A601 P1-4:Bayes 成员版本冻结(公式哈希 + 超参常量)
     _bayes_ver = _bayes_kappa_hist = _bayes_kappa_recent = None
     try:
         from app.models import bayes_team as _bt
@@ -149,7 +145,6 @@ def save(
     ]
     if len(_feat) < 2:
         raise RuntimeError(f"快照失败:特征矩阵仅 {len(_feat)} 行,无主/客预测行")
-    # 审查 P0-5:-2 行 = 主队预测行,-1 行 = 客队预测行(见 extract_feature_rows)
     _home_features, _away_features = extract_feature_rows(_feat, _fcols)
     try:
         from app.features.registry import logical_version as _fv
@@ -238,7 +233,6 @@ def save(
             },
             "gbm": {"sha256": _gbm_hash} if _gbm_hash else None,
             "ensemble": {"sha256": _ens_hash} if _ens_hash else None,
-            # 审查 A70A601 P1-4:Bayes 成员正式冻结(先验/超参已含于 data_hash
             # 与公式哈希;version 覆盖常数与实现变化)
             "bayes": (
                 {
@@ -259,7 +253,6 @@ def save(
             ),
         },
         "score_matrix": (_score_matrix if _score_matrix is not None else []),
-        # 审查 P1-11:版本 = artifact 哈希(唯一标识);无哈希时回退 method:n
         "calibration_version": (
             f"{_cal_info['method']}:{_cal_info['artifact_hash']}"
             if _cal_info and _cal_info.get("artifact_hash")
@@ -289,7 +282,6 @@ def save(
         "prior_blend": result.get("prior_blend"),
     }
     _probs = {
-        # 审查 f01d7e4 P1-6:校准**输入**(校准前最终 1X2)—— fit_calibration
         # 用它训练,保证与生产校准输入同分布(旧快照无此键 → fallback 使用
         # home_win/draw/away_win)
         "pre_calibration": result.get("_calibration_input_1x2"),

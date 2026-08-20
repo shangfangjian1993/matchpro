@@ -17,7 +17,7 @@ def load_gbm(league_type, models_dir: str):
     """加载 GBM 分类成员(统一 ArtifactCache);不存在返回 None。"""
     path = os.path.join(
         models_dir, league_type.value, "gbm.pkl"
-    )  # 审查 P0-4:models_dir=模型根
+    )
     if not os.path.exists(path):
         return None
     try:
@@ -38,7 +38,6 @@ def gbm_probs(gbm, pred_df, model) -> tuple | None:
     try:
         gfeat = model.prepare_features(pred_df)
         gcols = [col for col in gbm.feature_columns_ if col in gfeat.columns]
-        # 审查 P1:GBM 只需主队预测行(-2 行);客队行(-1)不使用
         gp = gbm.predict_proba(gfeat[gcols].iloc[[-2]])
         return (float(gp[0][0]), float(gp[0][1]), float(gp[0][2]))
     except Exception:

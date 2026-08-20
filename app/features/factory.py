@@ -51,12 +51,10 @@ def compute_all(
     for metric in side_metric_columns:
         out = compute_side_metric_rolling(out, metric, metric)
     # stats 特征族(team_match_stats 深度统计)
-    # 审查 ae724d5:
     #   - 按 match_id 显式 merge(不依赖 DataFrame 行序/index 对齐)
     #   - 异常分级:数据缺失(hist 空/无 stats)→ NaN 列自动跳过(可降级);
     #     实现/schema 异常 → 抛出(不静默降级,由上层 fail/invalid 标记)
     if hist_matches:
-        # 审查 ae724d5:按 match_id 显式 merge(不依赖行序/index 对齐)
         from app.features.stats_features import rolling_team_stats as _rolling_stats
 
         _stats_df = _rolling_stats(hist_matches)  # index=match_id;空或 NaN 列则跳过

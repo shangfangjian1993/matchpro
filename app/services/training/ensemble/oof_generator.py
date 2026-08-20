@@ -17,7 +17,6 @@ import pandas as pd
 
 from app.data.adapters import matches_to_dataframe
 
-# 审查 P1-5:OOF 样本量(120 → 600+) —— 5 成员 + τ/φ 联合优化需足够样本
 K_SEG = 6
 SAMPLE_PER_SEG = 120
 MIN_PREFIX_ROWS = 100
@@ -96,7 +95,6 @@ def generate(lt, league, matches, verbose=True):
                 lams = temp_model.model.predict(feats[fcols])
                 lam_h, lam_a = float(lams[-2]), float(lams[-1])
                 att_diff = float(feats["attack_elo_diff"].iloc[-2])
-                # 审查 P1-10:bayes 成员与线上同口径
                 from app.models.bayes_team import bayes_lambda
 
                 lam_bh, lam_ba = bayes_lambda(hist_df, m.home_team, m.away_team)

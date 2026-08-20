@@ -46,7 +46,6 @@ class ContextBuilder:
             raise ValueError("主队和客队不能相同")
         home_team = to_en(home_team)
         away_team = to_en(away_team)
-        # 审查 A70A601 §十五 + A 专项:队名归一化 —— 内存层统一规范名
         # ('AFC Bournemouth' 与 'Bournemouth' 合并为同 key),否则 FC/AFC
         # 后缀分裂令 known_teams 定位失败、特征 per-team 分组撕裂。
         from app.data.canonical.team_names import canonical_en
@@ -67,9 +66,14 @@ class ContextBuilder:
             .first()
         )
         matched_match_id = matched.id if matched else None
-        match_dt = pd.Timestamp(match_date) if match_date else pd.Timestamp.now()
+        from app.core.timeutil import as_utc_naive
 
-        # 审查 e752f5f P1:数据库层过滤/排序/LIMIT(不再整联赛 .all() 后 Python 处理)。
+        match_dt = (
+            as_utc_naive(match_date)
+            if match_date
+            else as_utc_naive(pd.Timestamp.now())
+        )
+
         # hist_limit 语义 = global chronological history(联赛级最近 N 场,时间窗口);
         # 团队级滚动由后续特征层在 hist_df 内按队计算,此处只约束时间范围上限。
         _q = Match.query.filter(
@@ -100,7 +104,6 @@ class ContextBuilder:
         known_teams = set(hist_df["home_team"]) | set(hist_df["away_team"])
         unknown = [t for t in (home_team, away_team) if t not in known_teams]
         if unknown:
-            # 审查 §8:全球分层模型为半成品分支,已删除;需要时再恢复。
             raise ValueError(
                 f"球队「{'、'.join(unknown)}」在 {league_type.value} 的历史数据中不存在,"
                 f"请先录入其比赛数据"
@@ -203,7 +206,6 @@ class ContextBuilder:
                 _degraded_components.append("injury")
                 _failure_codes.append("INJURY_CACHE_MISSING")
         except Exception as _ie:
-            # 审查 e752f5f:伤停降级按异常类型细分(网络/schema/其他),便于监控
             _degraded_components.append("injury")
             import urllib.error
 

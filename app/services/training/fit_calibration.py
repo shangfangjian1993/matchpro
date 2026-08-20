@@ -37,7 +37,6 @@ def main() -> int:
             leagues = [l for l in leagues if l.league_type == args.league]
         fitted = 0
         for lg in leagues:
-            # 审查 P1-10:严格按 kickoff 升序 —— 否则 fit_best 的前 80%/后 20%
             # 不保证是时间切分(数据库返回顺序可能把"未来"放进训练、"过去"放进验证)
             snaps = (
                 PredictionSnapshot.query.filter_by(league_id=lg.id)
@@ -53,7 +52,6 @@ def main() -> int:
                 p = json.loads(s.probabilities_json)
                 gh, ga = s.actual_home_goals or 0, s.actual_away_goals or 0
                 label = 0 if gh > ga else (1 if gh == ga else 2)
-                # 审查 f01d7e4 P1-6:校准训练必须用**校准前输入**(pre_calibration)
                 # —— 否则用"已校准"输出训练再应用于校准前输入会分布错配;
                 # 旧快照无该键时回退 home_win/draw/away_win。
                 _pc = p.get("pre_calibration") or [

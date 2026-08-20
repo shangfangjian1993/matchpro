@@ -156,7 +156,6 @@ def detect(
     _capped = [min(x, 0.35) for x in _comps]
     # Calibration Drift(尽力而为:production 快照的近期 ECE)
     calib = _calibration_drift(league_id, cutoff_dt)
-    # 审查 A70A601 P1-3:Calibration Drift **进入 shift_score 决策**(而非
     # 仅作诊断字段)。drift=ECE 变化 ±5pp 满量程,converged 时与原 5 维同权
     # (原权重×0.85 + calib×0.15);drift 缺失(无快照)时退回原 5 维权重。
     _w5 = [0.25, 0.25, 0.15, 0.15, 0.20]

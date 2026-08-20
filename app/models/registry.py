@@ -43,7 +43,6 @@ def _model_path(
     _vs = _existing_versions(league_type, models_dir)
     if _vs:
         return os.path.join(models_dir, league_type.value, f"{_vs[-1]}.pkl")
-    # 审查 §44:无 latest 语义(active_models.json 为唯一指针);版本缺失 → 调用方处理
     return os.path.join(models_dir, league_type.value, "_missing.pkl")
 
 
@@ -106,7 +105,6 @@ def _prune_old_versions(
     """
     keep = max(1, int(keep))
     versions = _existing_versions(league_type, models_dir)
-    # 审查 P0-8:active_models.json 指向的版本受保护,不参与 prune
     # (曾发生:最优版本被 prune 删除 → active 悬空 → 加载退化)
     _protected = _active_version(league_type, models_dir)
     for v in versions[:-keep]:

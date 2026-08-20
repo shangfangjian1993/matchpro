@@ -178,7 +178,6 @@ def with_elo_features(df, is_national: bool = False, dyn_k: bool | None = None):
     home_def = np.empty(n)
     away_def = np.empty(n)
     is_nan = (ghs is None) or (gas is None)
-    # 审查 P1-6:ELO 同日时间穿越 —— DB date 无时间戳,同日比赛并列排序。
     # 修复:按"日初快照"计算同一天全部比赛的特征(同场同时开赛,互不影响),
     # 当天结束后再统一更新 ELO(次日起基于前一日最终状态)。
     i = 0

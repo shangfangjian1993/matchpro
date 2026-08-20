@@ -19,7 +19,6 @@ from app.models.registry import _model_path as _mp
 
 def main():
     init_db()
-    # 审查 P0-4:统一经 paths.MODELS_DIR(artifacts/models)
     from app.core.paths import MODELS_DIR as _MD
 
     models_dir = os.environ.get("MODELS_DIR", str(_MD))
@@ -44,7 +43,6 @@ def main():
             # 特征版本必须是最新的(否则 predict 时特征生成与模型白名单不匹配)
             if getattr(e, "feature_version", None) != latest_fv.get(lt):
                 continue
-            # 审查 P0-7:只考虑文件系统真实存在的版本(MODELS_KEEP prune 后
             # experiments 里的旧版本可能已删除 → 前置过滤,避免悬空指针/空选择)
 
             from app.core.config import LeagueType as _LT
@@ -58,7 +56,6 @@ def main():
 
                 _lg.getLogger(__name__).debug("实验解析失败,跳过: %s", _exc)
                 continue
-            # 审查 P1-12:多指标门禁 —— 单一 poisson_loss 最优不代表 1X2/校准最优。
             # 综合评分 = 0.40·poisson + 0.25·logloss + 0.20·brier + 0.15·rps
             # (四项均为越小越好;任一缺失或为 0 占位即拒绝候选 —— 旧版本实验
             #  概率指标未计算时存 0.0,0 值 logloss/brier/rps 会使综合分虚低)
@@ -101,7 +98,6 @@ def main():
             "runtime",
             "active_models.json",
         )
-        # 审查 P1-12:审计元数据(选中的版本 + 各指标 + 综合分)
         meta_out = os.path.join(os.path.dirname(out), "active_meta.json")
         os.makedirs(models_dir, exist_ok=True)
         with open(out, "w", encoding="utf-8") as _of:

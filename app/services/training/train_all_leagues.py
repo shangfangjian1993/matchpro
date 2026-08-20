@@ -44,7 +44,6 @@ def main():
     from app.api.db import init_db, session_scope
 
     init_db(os.environ.get("DATABASE_URL", None))
-    # 审查 P0-4:统一经 paths.MODELS_DIR(artifacts/models),禁止手拼路径
     from app.core.paths import MODELS_DIR as _MD
 
     models_dir = os.environ.get("MODELS_DIR", str(_MD))

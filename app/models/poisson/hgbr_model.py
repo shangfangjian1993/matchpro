@@ -140,7 +140,6 @@ class PoissonLossHGBR(BaseEstimator, RegressorMixin):
         # 验证数据
         X, y = self._validate_data(X, y)
 
-        # 审查 A70A601 P1-7:移除外层 train_test_split 嵌套切分。
         # 旧实现:外层按时间切 15% 验证 + HGBR 内部再按 validation_fraction
         # 随机切验证做早停 → 有效训练样本二次折损(0.85×0.85≈0.72)。
         # 新实现:早停验证交由 HGBR 内部(validation_fraction 一次切分)承担;

@@ -142,7 +142,6 @@ def predict_tournament(
         "champion_probabilities": champion_probs,
         "most_likely_champion": most_likely,
         "team_strengths": {t: round(v, 3) for t, v in team_lambda.items()},
-        # 审查 §26:诚实定位 —— Monte Carlo baseline,未建模主客场/阵容/抽签约束/加时点球
         "model": "monte_carlo_baseline",
         "limitations": "baseline:未建模主客场/中立场/阵容/晋级阶段/抽签约束/加时点球",
         "timestamp": utcnow().isoformat(),

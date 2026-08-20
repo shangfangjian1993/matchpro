@@ -31,7 +31,6 @@ def apply(result: dict, models_dir: str, league_type) -> tuple[dict, dict | None
             result["draw_probability"] = cp["draw"]
             result["away_win_probability"] = cp["away_win"]
             result["calibration"] = cp.get("calibration")
-            # 审查 P1-11:calibration_version 用 artifact 哈希唯一标识(两个
             # 不同 beta 模型 method:n 相同但参数可能不同;sha256 才能区分)
             import hashlib
 
