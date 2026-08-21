@@ -167,8 +167,8 @@ def from_layered(layered: dict) -> dict:
         "poisson": float(sd.get("poisson", 0.0)),
         "dc": float(sd.get("dc", 0.0)),
         "nb": float(sd.get("nb", 0.0)),
-        "shape_weight": float(outcome.get("shape", 1.0)),
-        "gbm_weight": float(outcome.get("gbm", 0.0)),
+        "shape": float(outcome.get("shape", 1.0)),
+        "gbm": float(outcome.get("gbm", 0.0)),
     }
 
 

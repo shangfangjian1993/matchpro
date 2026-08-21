@@ -68,41 +68,53 @@ class ProductionArtifact:
     lineage: LineageInfo = field(default_factory=LineageInfo)
     
     def __post_init__(self):
-        """P0-4: 验证权重合法性 (finite, 0<=w<=1, sum=1)。"""
+        """验证权重合法性 (finite, 0<=w<=1, sum=1)。P1-2: 缺失 key → fail。"""
         import math
         
-        # Layer-1: sum = 1, all finite and non-negative
+        # Layer-1: require mandatory keys, allow extras
+        mandatory_gl = {"hgbr", "elo", "bayes"}
+        missing_gl = mandatory_gl - set(self.goal_lambda.keys())
+        if missing_gl:
+            raise ValueError(f"Layer-1 missing mandatory keys: {missing_gl}")
         gl_sum = 0.0
-        for k in ["hgbr", "elo", "bayes"]:
-            v = float(self.goal_lambda.get(k, 0))
+        for k in mandatory_gl:
+            v = float(self.goal_lambda[k])
             if not math.isfinite(v):
                 raise ValueError(f"Layer-1 weight {k}={v} is not finite")
             if v < 0 or v > 1:
                 raise ValueError(f"Layer-1 weight {k}={v} out of [0,1]")
             gl_sum += v
-        if abs(gl_sum - 1.0) > 0.01:
+        if abs(gl_sum - 1.0) > 1e-9:
             raise ValueError(f"Layer-1 weights sum={gl_sum:.4f}, expected 1.0")
         
-        # Layer-2: sum = 1, all finite and non-negative
+        # Layer-2: require mandatory keys, allow extras
+        mandatory_sd = {"poisson", "dc", "nb"}
+        missing_sd = mandatory_sd - set(self.score_distribution.keys())
+        if missing_sd:
+            raise ValueError(f"Layer-2 missing mandatory keys: {missing_sd}")
         sd_sum = 0.0
-        for k in ["poisson", "dc", "nb"]:
-            v = float(self.score_distribution.get(k, 0))
+        for k in mandatory_sd:
+            v = float(self.score_distribution[k])
             if not math.isfinite(v):
                 raise ValueError(f"Layer-2 weight {k}={v} is not finite")
             if v < 0 or v > 1:
                 raise ValueError(f"Layer-2 weight {k}={v} out of [0,1]")
             sd_sum += v
-        if abs(sd_sum - 1.0) > 0.01:
+        if abs(sd_sum - 1.0) > 1e-9:
             raise ValueError(f"Layer-2 weights sum={sd_sum:.4f}, expected 1.0")
         
-        # Layer-3: valid simplex
-        shape = float(self.outcome.get("shape", 0))
-        gbm = float(self.outcome.get("gbm", 0))
+        # Layer-3: require mandatory keys
+        mandatory_oc = {"shape", "gbm"}
+        missing_oc = mandatory_oc - set(self.outcome.keys())
+        if missing_oc:
+            raise ValueError(f"Layer-3 missing mandatory keys: {missing_oc}")
+        shape = float(self.outcome["shape"])
+        gbm = float(self.outcome["gbm"])
         if not math.isfinite(shape) or not math.isfinite(gbm):
             raise ValueError(f"Layer-3 weights not finite: shape={shape}, gbm={gbm}")
         if shape < 0 or shape > 1 or gbm < 0 or gbm > 1:
             raise ValueError(f"Layer-3 weights out of [0,1]: shape={shape}, gbm={gbm}")
-        if abs(shape + gbm - 1.0) > 0.01:
+        if abs(shape + gbm - 1.0) > 1e-9:
             raise ValueError(f"Layer-3 weights sum={shape + gbm:.4f}, expected 1.0")
         
         # Validate tau and phi
@@ -187,6 +199,10 @@ class ProductionArtifact:
         return hashlib.sha256(content.encode()).hexdigest()[:16]
 
 
+class ArtifactValidationError(Exception):
+    """ProductionArtifact validation failed."""
+
+
 def create_production_artifact(
     league: str,
     weights: dict,
@@ -208,21 +224,26 @@ def create_production_artifact(
     P1-5: training_cutoff 由调用方传入(真实数据截止时间)。
     P1-2: oof_segments 由调用方传入(真实 K_SEG)。
     """
+    required_keys = {"hgbr", "elo", "bayes", "poisson", "dc", "nb", "shape", "gbm"}
+    missing = required_keys - set(weights.keys())
+    if missing:
+        raise ArtifactValidationError(f"Missing required weights: {missing}")
+    
     return ProductionArtifact(
         league=league,
         goal_lambda={
-            "hgbr": float(weights.get("hgbr", 0.5)),
-            "elo": float(weights.get("elo", 0.3)),
-            "bayes": float(weights.get("bayes", 0.2)),
+            "hgbr": float(weights["hgbr"]),
+            "elo": float(weights["elo"]),
+            "bayes": float(weights["bayes"]),
         },
         score_distribution={
-            "poisson": float(weights.get("poisson", 0.5)),
-            "dc": float(weights.get("dc", 0.3)),
-            "nb": float(weights.get("nb", 0.2)),
+            "poisson": float(weights["poisson"]),
+            "dc": float(weights["dc"]),
+            "nb": float(weights["nb"]),
         },
         outcome={
-            "shape": float(weights.get("shape_weight", 1.0)),
-            "gbm": float(weights.get("gbm_weight", 0.0)),
+            "shape": float(weights["shape"]),
+            "gbm": float(weights["gbm"]),
         },
         tau=float(tau),
         phi=float(phi),

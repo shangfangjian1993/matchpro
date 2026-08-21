@@ -24,7 +24,7 @@ class TestRoundtripParity:
         original = {
             "hgbr": 0.52, "elo": 0.29, "bayes": 0.19,
             "poisson": 0.48, "dc": 0.32, "nb": 0.20,
-            "shape_weight": 0.73, "gbm_weight": 0.27,
+            "shape": 0.73, "gbm": 0.27,
         }
         
         layered = to_layered(original)
@@ -40,7 +40,7 @@ class TestRoundtripParity:
             weights={
                 "hgbr": 0.52, "elo": 0.29, "bayes": 0.19,
                 "poisson": 0.48, "dc": 0.32, "nb": 0.20,
-                "shape_weight": 0.73, "gbm_weight": 0.27,
+                "shape": 0.73, "gbm": 0.27,
             },
             tau=-0.071,
             phi=2.31,
@@ -106,7 +106,7 @@ class TestArtifactIntegrity:
         """相同内容 → 相同 hash。"""
         artifact = create_production_artifact(
             league="premier_league",
-            weights={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape_weight": 0.7, "gbm_weight": 0.3},
+            weights={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape": 0.7, "gbm": 0.3},
             tau=0.05, phi=50.0,
         )
         
@@ -116,12 +116,12 @@ class TestArtifactIntegrity:
         """权重变化 → hash 变化。"""
         a1 = create_production_artifact(
             league="premier_league",
-            weights={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape_weight": 0.7, "gbm_weight": 0.3},
+            weights={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape": 0.7, "gbm": 0.3},
             tau=0.05, phi=50.0,
         )
         a2 = create_production_artifact(
             league="premier_league",
-            weights={"hgbr": 0.6, "elo": 0.3, "bayes": 0.1, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape_weight": 0.7, "gbm_weight": 0.3},
+            weights={"hgbr": 0.6, "elo": 0.3, "bayes": 0.1, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape": 0.7, "gbm": 0.3},
             tau=0.05, phi=50.0,
         )
         
@@ -131,12 +131,12 @@ class TestArtifactIntegrity:
         """P1-6: model_hash 不包含 created_at。"""
         a1 = create_production_artifact(
             league="premier_league",
-            weights={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape_weight": 0.7, "gbm_weight": 0.3},
+            weights={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape": 0.7, "gbm": 0.3},
             tau=0.05, phi=50.0,
         )
         a2 = create_production_artifact(
             league="premier_league",
-            weights={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape_weight": 0.7, "gbm_weight": 0.3},
+            weights={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape": 0.7, "gbm": 0.3},
             tau=0.05, phi=50.0,
         )
         
@@ -214,7 +214,7 @@ class TestProductionArtifactValidation:
         """合法权重可以通过验证。"""
         artifact = create_production_artifact(
             league="premier_league",
-            weights={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape_weight": 0.7, "gbm_weight": 0.3},
+            weights={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape": 0.7, "gbm": 0.3},
             tau=0.05, phi=50.0,
         )
         assert artifact.league == "premier_league"

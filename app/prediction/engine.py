@@ -98,59 +98,28 @@ class PredictionEngine:
         artifact_path = os.path.join(league_dir, "production_artifact.json")
         
         if not os.path.exists(artifact_path):
-            return None
+            raise CorePredictionError(
+                "ARTIFACT_MISSING",
+                f"ProductionArtifact not found for {league_type_value}"
+            )
         
         try:
             with open(artifact_path, encoding="utf-8") as f:
                 data = json.load(f)
-            from app.services.training.ensemble.artifact import ProductionArtifact
+        except json.JSONDecodeError as e:
+            raise CorePredictionError(
+                "ARTIFACT_CORRUPTED",
+                f"ProductionArtifact JSON parse error for {league_type_value}: {e}"
+            ) from e
+        
+        from app.services.training.ensemble.artifact import ProductionArtifact
+        try:
             return ProductionArtifact.from_dict(data)
-        except Exception:
-            return None
-
-    def _load_weights_league_scoped(self, league_type_value: str) -> dict:
-        """P0-1: League Scoped 权重加载。"""
-        import json
-        
-        league_dir = self._league_dir(league_type_value)
-        weights_path = os.path.join(league_dir, "ensemble_weights.json")
-        
-        if os.path.exists(weights_path):
-            try:
-                with open(weights_path, encoding="utf-8") as f:
-                    data = json.load(f)
-                if isinstance(data, dict):
-                    # 已经是 flat 格式
-                    if "hgbr" in data:
-                        return data
-                    # layered 格式
-                    from app.models.ensemble.weights import _is_layered, from_layered
-                    if _is_layered(data):
-                        return from_layered(data)
-            except Exception:
-                pass
-        
-        # Fallback to default
-        from app.models.ensemble.weights import DEFAULT_WEIGHTS
-        return DEFAULT_WEIGHTS.to_flat()
-
-    def _load_dc_nb_params_league_scoped(self, league_type_value: str) -> tuple:
-        """P0-1: League Scoped τ/φ 加载。"""
-        import json
-        
-        league_dir = self._league_dir(league_type_value)
-        params_path = os.path.join(league_dir, "dc_nb_params.json")
-        
-        if os.path.exists(params_path):
-            try:
-                with open(params_path, encoding="utf-8") as f:
-                    data = json.load(f)
-                if isinstance(data, dict):
-                    return float(data.get("tau", 0.0)), float(data.get("phi", 1e9))
-            except Exception:
-                pass
-        
-        return 0.0, 1e9
+        except Exception as e:
+            raise CorePredictionError(
+                "ARTIFACT_INVALID",
+                f"ProductionArtifact validation failed for {league_type_value}: {e}"
+            ) from e
 
     def predict(self, ctx: dict) -> dict:
         league_type = ctx["league_type"]
@@ -175,8 +144,23 @@ class PredictionEngine:
         try:
             from app.models.ensemble import elo_goal_lambda
 
-            # P0-1: League Scoped 权重加载
-            _w = self._load_weights_league_scoped(league_type.value)
+            # P0-1: 只从 ProductionArtifact 加载
+            _artifact = self._load_production_artifact(league_type.value)
+            if _artifact is None:
+                raise CorePredictionError(
+                    "ARTIFACT_MISSING",
+                    f"ProductionArtifact not found for {league_type.value}"
+                )
+            _w = {
+                "hgbr": _artifact.goal_lambda.get("hgbr", 0.0),
+                "elo": _artifact.goal_lambda.get("elo", 0.0),
+                "bayes": _artifact.goal_lambda.get("bayes", 0.0),
+                "poisson": _artifact.score_distribution.get("poisson", 0.0),
+                "dc": _artifact.score_distribution.get("dc", 0.0),
+                "nb": _artifact.score_distribution.get("nb", 0.0),
+                "shape": _artifact.outcome.get("shape", 1.0),
+                "gbm": _artifact.outcome.get("gbm", 0.0),
+            }
             
             # 权重结构校验(审查十 P0-1:权重损坏不得静默)
             _w_keys = set(_w) - {"log_loss", "n", "shrinkage"}
@@ -190,15 +174,12 @@ class PredictionEngine:
             for _k, _v in _w.items():
                 if isinstance(_v, float) and not math.isfinite(_v):
                     raise CorePredictionError("ENSEMBLE_FAILURE", f"权重 {_k} 非有限值")
-            # 审查三十七 P2:上下文动态权重(默认关,开启须严格 OOF A/B)
-            try:
-                from app.prediction.context_weights import adjust as _ctx_adj
-
-                _w, _ctx_info = _ctx_adj(_w, _att_diff, ctx.get("disagreement", 0.0))
-            except Exception:
-                _ctx_info = None
-            # P0-1: League Scoped τ/φ 加载
-            _tau, _phi = self._load_dc_nb_params_league_scoped(league_type.value)
+            # P1-7: Dynamic context weight parity - OOF and Production must use same weights
+            # Context-adjusted weights are NOT applied in OOF, so we don't apply them in Production either
+            # to maintain mathematical consistency between training and inference.
+            _ctx_info = None
+            # P0-1: τ/φ from Artifact
+            _tau, _phi = _artifact.tau, _artifact.phi
 
             _lam_h = home_lambda * _h_mult
             _lam_a = away_lambda * _a_mult
@@ -249,26 +230,36 @@ class PredictionEngine:
             _gbm_probs = None
             _gbm = load_gbm(league_type, self.models_dir)
             
-            # P0.5: Verify GBM hash if ProductionArtifact available
-            if _gbm is not None:
+            # P0-3: GBM hash 用 file bytes (非 str(model))
+            if _gbm is not None and _artifact.gbm_model_hash:
+                import hashlib
+                gbm_path = os.path.join(
+                    str(_get_artifacts_dir()),
+                    league_type.value,
+                    "gbm.pkl"
+                )
                 try:
-                    import hashlib
-                    artifact = self._load_production_artifact(league_type.value)
-                    if artifact and artifact.gbm_model_hash:
-                        # Compute hash of loaded GBM model
-                        model_bytes = str(_gbm.model).encode() if hasattr(_gbm, 'model') else str(_gbm).encode()
-                        actual_hash = hashlib.sha256(model_bytes).hexdigest()[:16]
-                        if actual_hash != artifact.gbm_model_hash:
-                            raise CorePredictionError(
-                                "GBM_HASH_MISMATCH",
-                                f"GBM hash mismatch: expected {artifact.gbm_model_hash}, got {actual_hash}"
-                            )
-                except CorePredictionError:
-                    raise
-                except Exception:
-                    pass  # Hash verification is best-effort
+                    with open(gbm_path, "rb") as _gf:
+                        actual_hash = hashlib.sha256(_gf.read()).hexdigest()[:16]
+                except OSError as e:
+                    # P0-4: GBM hash 异常不吞
+                    raise CorePredictionError(
+                        "GBM_HASH_UNAVAILABLE",
+                        f"Cannot read GBM model file for hash verification: {e}"
+                    ) from e
+                if actual_hash != _artifact.gbm_model_hash:
+                    raise CorePredictionError(
+                        "GBM_HASH_MISMATCH",
+                        f"GBM hash mismatch: expected {_artifact.gbm_model_hash}, got {actual_hash}"
+                    )
             
             if _gbm is None:
+                # P0-5: Artifact 声明 gbm_weight > 0 但 GBM 缺失 → P0
+                if _w.get("gbm", 0) > 0:
+                    raise CorePredictionError(
+                        "GBM_REQUIRED_MISSING",
+                        f"Artifact requires GBM weight {_w['gbm']:.2f} but model unavailable"
+                    )
                 _degraded_components.append("gbm")
                 _failure_codes.append("GBM_UNAVAILABLE")
             else:

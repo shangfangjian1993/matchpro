@@ -62,7 +62,10 @@ def run_all(leagues, verbose: bool = True) -> dict:
                 phi=params_out[lt.value]["phi"],
                 oof_n=meta_out[lt.value].get("n", 0),
                 shrinkage=meta_out[lt.value].get("shrinkage", 0.15),
-                oof_segments=K_SEG,  # P1-2
+                oof_segments=K_SEG,
+                training_cutoff="",  # P1-6: to be injected by caller
+                calibration=None,  # P1-6: to be injected by caller
+                prior=None,  # P1-6: to be injected by caller
             )
             write_production_artifact(artifact, _ens_dir)
     

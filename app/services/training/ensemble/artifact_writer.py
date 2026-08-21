@@ -40,15 +40,23 @@ def write_all(weights, params, meta, artifacts_dir: str) -> None:
 
 
 def write_production_artifact(artifact, artifacts_dir: str) -> str:
-    """写入 ProductionArtifact (League Scoped + 全精度)。
+    """写入 ProductionArtifact (atomic publish + league scoped)。
     
-    P0-1: 每个联赛写入各自目录,不会覆盖。
-    P1-6: 全精度序列化,无 round/renormalize。
+    P1-5: 原子发布(先写 tmp,再 rename,保证 READY 语义)。
     """
+    import tempfile
     league_dir = _artifact_dir(artifacts_dir, artifact.league)
     os.makedirs(league_dir, exist_ok=True)
     
     path = os.path.join(league_dir, "production_artifact.json")
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(artifact.to_json())
+    # Atomic write: write to temp, then rename
+    fd, tmp_path = tempfile.mkstemp(dir=league_dir, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(artifact.to_json())
+        os.replace(tmp_path, path)
+    except Exception:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+        raise
     return path
