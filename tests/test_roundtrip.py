@@ -180,7 +180,8 @@ class TestCalibrationPriorRoundtrip:
         
         restored = ProductionArtifact.from_json(artifact.to_json())
         
-        assert restored.calibration is not None
+        # P0-2: 验证 calibration 没有丢失
+        assert restored.calibration is not None, "calibration should not be None"
         assert restored.calibration.method == "isotonic"
         assert restored.calibration.artifact_hash == "abc123def456"
         assert restored.calibration.val_ece == 0.031
@@ -206,10 +207,57 @@ class TestCalibrationPriorRoundtrip:
         
         restored = ProductionArtifact.from_json(artifact.to_json())
         
-        assert restored.prior is not None
+        # P0-2: 验证 prior 没有丢失
+        assert restored.prior is not None, "prior should not be None"
         assert restored.prior.window == 100
         assert restored.prior.alpha == 0.6
         assert restored.prior.min_history == 50
+
+
+class TestProductionArtifactValidation:
+    """ProductionArtifact 权重合法性验证。"""
+    
+    def test_valid_weights_accepted(self):
+        """合法权重可以通过验证。"""
+        artifact = create_production_artifact(
+            league="premier_league",
+            weights={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape_weight": 0.7, "gbm_weight": 0.3},
+            tau=0.05, phi=50.0,
+        )
+        assert artifact.league == "premier_league"
+    
+    def test_invalid_layer1_weights_rejected(self):
+        """Layer-1 权重和不等于 1 时拒绝。"""
+        with pytest.raises(ValueError, match="Layer-1 weights sum"):
+            ProductionArtifact(
+                league="premier_league",
+                goal_lambda={"hgbr": 0.8, "elo": 0.3, "bayes": 0.2},  # sum=1.3
+                score_distribution={"poisson": 0.5, "dc": 0.3, "nb": 0.2},
+                outcome={"shape": 0.7, "gbm": 0.3},
+                tau=0.05, phi=50.0,
+            )
+    
+    def test_invalid_layer2_weights_rejected(self):
+        """Layer-2 权重和不等于 1 时拒绝。"""
+        with pytest.raises(ValueError, match="Layer-2 weights sum"):
+            ProductionArtifact(
+                league="premier_league",
+                goal_lambda={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2},
+                score_distribution={"poisson": 0.8, "dc": 0.3, "nb": 0.2},  # sum=1.3
+                outcome={"shape": 0.7, "gbm": 0.3},
+                tau=0.05, phi=50.0,
+            )
+    
+    def test_invalid_layer3_weights_rejected(self):
+        """Layer-3 权重和不等于 1 时拒绝。"""
+        with pytest.raises(ValueError, match="Layer-3 weights sum"):
+            ProductionArtifact(
+                league="premier_league",
+                goal_lambda={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2},
+                score_distribution={"poisson": 0.5, "dc": 0.3, "nb": 0.2},
+                outcome={"shape": 0.5, "gbm": 0.3},  # sum=0.8
+                tau=0.05, phi=50.0,
+            )
 
 
 if __name__ == "__main__":

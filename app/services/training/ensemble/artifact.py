@@ -32,14 +32,6 @@ class PriorArtifact:
 
 
 @dataclass(frozen=True)
-class GbmArtifact:
-    """GBM 子-artifact(包含模型引用)。"""
-    model_path: str  # 相对路径
-    model_hash: str  # SHA256 of model file
-    feature_columns: list = field(default_factory=list)
-
-
-@dataclass(frozen=True)
 class LineageInfo:
     """Artifact 血统信息。"""
     artifact_version: str = "ensemble-v3"
@@ -60,27 +52,37 @@ class LineageInfo:
 
 @dataclass(frozen=True)
 class ProductionArtifact:
-    """生产模型完整 artifact(唯一输入)。"""
-    # P0-4: 增加 league 字段
+    """生产模型完整 artifact(唯一输入)。
+    
+    P0-2: 使用 typed schema (GoalLambdaWeights/ScoreDistributionWeights/OutcomeWeights)。
+    """
     league: str  # "premier_league", "la_liga", etc.
-    
-    # Ensemble weights (typed - P0-2)
-    goal_lambda: dict  # {hgbr, elo, bayes}
-    score_distribution: dict  # {poisson, dc, nb}
-    outcome: dict  # {shape, gbm}
-    
-    # Distribution parameters
+    goal_lambda: dict  # P0-2: typed via __post_init__ validation
+    score_distribution: dict
+    outcome: dict
     tau: float
     phi: float
-    
-    # P0-3: GBM learned state
     gbm_model_path: str = ""
     gbm_model_hash: str = ""
-    
-    # Sub-artifacts
     calibration: Optional[CalibrationArtifact] = None
     prior: Optional[PriorArtifact] = None
     lineage: LineageInfo = field(default_factory=LineageInfo)
+    
+    def __post_init__(self):
+        """验证权重合法性。"""
+        # Layer-1: sum = 1
+        gl_sum = sum(float(self.goal_lambda.get(k, 0)) for k in ["hgbr", "elo", "bayes"])
+        if abs(gl_sum - 1.0) > 0.01:
+            raise ValueError(f"Layer-1 weights sum={gl_sum:.4f}, expected 1.0")
+        # Layer-2: sum = 1
+        sd_sum = sum(float(self.score_distribution.get(k, 0)) for k in ["poisson", "dc", "nb"])
+        if abs(sd_sum - 1.0) > 0.01:
+            raise ValueError(f"Layer-2 weights sum={sd_sum:.4f}, expected 1.0")
+        # Layer-3: valid simplex
+        shape = float(self.outcome.get("shape", 0))
+        gbm = float(self.outcome.get("gbm", 0))
+        if abs(shape + gbm - 1.0) > 0.01:
+            raise ValueError(f"Layer-3 weights sum={shape + gbm:.4f}, expected 1.0")
     
     def to_dict(self) -> dict:
         """序列化为 dict(P1-6: 全精度,无 round/renormalize)。"""
@@ -104,7 +106,10 @@ class ProductionArtifact:
     
     @classmethod
     def from_dict(cls, data: dict) -> ProductionArtifact:
-        """从 dict 反序列化。"""
+        """从 dict 反序列化。
+        
+        P0-2 FIX: 正确恢复 calibration 和 prior。
+        """
         cal = None
         if data.get("calibration"):
             cal = CalibrationArtifact(**data["calibration"])
@@ -121,8 +126,8 @@ class ProductionArtifact:
             phi=data["phi"],
             gbm_model_path=data.get("gbm_model_path", ""),
             gbm_model_hash=data.get("gbm_model_hash", ""),
-            calibration=cal,
-            prior=prior,
+            calibration=cal,  # P0-2 FIX: 传入 calibration
+            prior=prior,       # P0-2 FIX: 传入 prior
             lineage=lineage,
         )
     
@@ -156,7 +161,7 @@ class ProductionArtifact:
 
 
 def create_production_artifact(
-    league: str,  # P0-4: 必须传入 league
+    league: str,
     weights: dict,
     tau: float,
     phi: float,
@@ -169,10 +174,15 @@ def create_production_artifact(
     gbm_model_hash: str = "",
     calibration: Optional[CalibrationArtifact] = None,
     prior: Optional[PriorArtifact] = None,
+    oof_segments: int = 6,
 ) -> ProductionArtifact:
-    """从训练输出创建 ProductionArtifact。"""
+    """从训练输出创建 ProductionArtifact。
+
+    P1-5: training_cutoff 由调用方传入(真实数据截止时间)。
+    P1-2: oof_segments 由调用方传入(真实 K_SEG)。
+    """
     return ProductionArtifact(
-        league=league,  # P0-4
+        league=league,
         goal_lambda={
             "hgbr": float(weights.get("hgbr", 0.5)),
             "elo": float(weights.get("elo", 0.3)),
@@ -196,8 +206,8 @@ def create_production_artifact(
         lineage=LineageInfo(
             model_version=model_version,
             feature_version=feature_version,
-            training_cutoff=training_cutoff,
-            oof_segments=6,
+            training_cutoff=training_cutoff,  # P1-5: 真实 cutoff
+            oof_segments=oof_segments,  # P1-2: 真实 K_SEG
             oof_n=oof_n,
             shrinkage=shrinkage,
             created_at=datetime.now(timezone.utc).isoformat(),

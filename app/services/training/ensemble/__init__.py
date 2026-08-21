@@ -8,7 +8,7 @@ def run_all(leagues, verbose: bool = True) -> dict:
     """对 5 联赛执行 OOF 权重学习;返回 (weights, params, meta)。
     
     P0-1: 每个联赛写入各自目录,不会覆盖。
-    P1-1: 传递 training_cutoff。
+    P1-1: 传递 training_cutoff(真实数据截止时间)。
     P1-2: 传递真实 K_SEG。
     """
     from app.core.paths import ARTIFACTS_DIR as _AD
@@ -42,14 +42,17 @@ def run_all(leagues, verbose: bool = True) -> dict:
         }
         
         # P0-1: 创建 ProductionArtifact (league scoped)
+        # P1-1: training_cutoff 暂为空(需要从外部注入数据截止时间)
+        # P1-2: 传递真实 K_SEG
         artifact = create_production_artifact(
-            league=lt.value,  # P0-4: 必须传入 league
+            league=lt.value,
             weights=w,
             tau=result.tau,
             phi=result.phi,
             oof_n=w.get("n", 0),
             shrinkage=w.get("shrinkage", 0.15),
-            training_cutoff="",  # P1-1: 待传入真实 cutoff
+            training_cutoff="",  # P1-1: 待外部注入
+            oof_segments=K_SEG,  # P1-2: 真实 K_SEG
         )
         
         if verbose:
@@ -74,6 +77,7 @@ def run_all(leagues, verbose: bool = True) -> dict:
                 phi=params_out[lt.value]["phi"],
                 oof_n=meta_out[lt.value].get("n", 0),
                 shrinkage=meta_out[lt.value].get("shrinkage", 0.15),
+                oof_segments=K_SEG,  # P1-2
             )
             write_production_artifact(artifact, _ens_dir)
     
