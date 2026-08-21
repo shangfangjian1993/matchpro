@@ -1,9 +1,9 @@
-"""成员概率构建:OOF 样本 → 各成员概率 + λ + shape_1x2。
+"""成员概率构建:OOF 样本 → 各成员概率 + λ + shape_1x2(使用 learned weights)。
 
 输出同时包含:
 - λ 值(用于 Layer-1 Poisson NLL 优化)
 - 1X2 概率(用于 Layer-2 LogLoss 优化)
-- shape_1x2(用于 Layer-3 outcome optimization)
+- shape_1x2(使用 learned Layer-2 weights,而非等权)
 """
 from __future__ import annotations
 
@@ -16,13 +16,21 @@ def build_member_samples(oof_samples, tau, phi, weights: dict | None = None):
         from app.models.ensemble.weights import to_layered
         lay = to_layered(weights)
         gl = lay["goal_lambda"]
+        sd = lay.get("score_distribution", {})
     else:
         gl = {"hgbr": 1.0, "elo": 1.0, "bayes": 1.0}
+        sd = {"poisson": 1.0, "dc": 1.0, "nb": 1.0}
 
     wsum = sum(gl.get(k, 0) for k in ["hgbr", "elo", "bayes"]) or 1.0
     w_hgbr = gl.get("hgbr", 0) / wsum
     w_elo = gl.get("elo", 0) / wsum
     w_bayes = gl.get("bayes", 0) / wsum
+
+    # Layer-2 weights (用于 shape_1x2)
+    wp = sd.get("poisson", 1.0)
+    wd = sd.get("dc", 1.0)
+    wn = sd.get("nb", 1.0)
+    wsum_sd = wp + wd + wn or 1.0
 
     samples = []
     for s in oof_samples:
@@ -31,7 +39,7 @@ def build_member_samples(oof_samples, tau, phi, weights: dict | None = None):
         bh = s.get("bayes_lam_h")
         ba = s.get("bayes_lam_a")
 
-        # Fused λ
+        # Fused λ (使用 learned Layer-1 weights)
         if bh is not None and ba is not None:
             fh = w_hgbr * s["hgbr_lam_h"] + w_elo * lam_eh + w_bayes * bh
             fa = w_hgbr * s["hgbr_lam_a"] + w_elo * lam_ea + w_bayes * ba
@@ -48,11 +56,11 @@ def build_member_samples(oof_samples, tau, phi, weights: dict | None = None):
         dc_p = dc_probs(fh, fa, tau)
         nb_p = nb_probs(fh, fa, phi)
         
-        # Shape ensemble (equal weight preliminary)
+        # P0-4 FIX: shape_1x2 使用 learned Layer-2 weights
         shape_1x2 = [
-            (pois_p[0] + dc_p[0] + nb_p[0]) / 3,
-            (pois_p[1] + dc_p[1] + nb_p[1]) / 3,
-            (pois_p[2] + dc_p[2] + nb_p[2]) / 3,
+            (wp * pois_p[0] + wd * dc_p[0] + wn * nb_p[0]) / wsum_sd,
+            (wp * pois_p[1] + wd * dc_p[1] + wn * nb_p[1]) / wsum_sd,
+            (wp * pois_p[2] + wd * dc_p[2] + wn * nb_p[2]) / wsum_sd,
         ]
 
         rec = {
@@ -71,7 +79,7 @@ def build_member_samples(oof_samples, tau, phi, weights: dict | None = None):
             "dc": list(dc_p),
             "nb": list(nb_p),
             "elo": list(match_probs(lam_eh, lam_ea)),
-            # Shape ensemble (Layer-3)
+            # Shape ensemble (Layer-3, 使用 learned weights)
             "shape_1x2": shape_1x2,
             # 实际值
             "actual": s["actual"],

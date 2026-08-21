@@ -46,27 +46,29 @@ def optimize(
     samples_stage1 = build_member_samples(oof_samples, tau=0.0, phi=1e9)
     w_layer1 = learn_weights(samples_stage1, tau=0.0, phi=1e9, shrinkage=config.shrinkage)
     
-    # Stage 2: τ/φ on fused λ (使用 learned w_layer1)
+    # Stage 2: τ/φ on fused λ (P0-2 FIX: 使用 learned w_layer1)
     if tau is None:
-        tau = fit_tau(samples_stage1, config=config, use_fused_lambda=True)
+        # P0-2: 使用 learned w_layer1 计算 fused λ
+        samples_fused = build_member_samples(oof_samples, tau=0.0, phi=1e9, weights=w_layer1)
+        tau = fit_tau(samples_fused, config=config, use_fused_lambda=True)
     if phi is None:
-        phi = fit_phi(samples_stage1, config=config)
+        samples_fused = build_member_samples(oof_samples, tau=0.0, phi=1e9, weights=w_layer1)
+        phi = fit_phi(samples_fused, config=config)
     
-    # P0-2 FIX: 传入 w_layer1,使 fused λ 使用 learned weights
+    # Stage 3: Layer-2 shape weights (使用拟合后的 τ/φ 和 learned w_layer1)
     samples_stage2 = build_member_samples(oof_samples, tau, phi, weights=w_layer1)
     w_layer2 = learn_weights(samples_stage2, tau, phi, shrinkage=config.shrinkage)
     
-    # P0-4 FIX: Stage-3 GBM 使用 learned shape weights 构建 shape_1x2
+    # Stage 4: Layer-3 outcome weights (P0-4 FIX: 使用 learned shape weights)
     shape_probs = []
     gbm_probs_list = []
     actuals = []
     for s in samples_stage2:
         if "gbm" in s:
-            # 使用 learned weights 计算 shape_1x2
+            # P0-4: 使用 learned Layer-2 weights 计算 shape_1x2
             p_pois = s.get("poisson", [0.33, 0.34, 0.33])
             p_dc = s.get("dc", [0.33, 0.34, 0.33])
             p_nb = s.get("nb", [0.33, 0.34, 0.33])
-            # 使用 learned Layer-2 weights
             wp = w_layer2.get("poisson", 0.33)
             wd = w_layer2.get("dc", 0.33)
             wn = w_layer2.get("nb", 0.33)
@@ -92,17 +94,16 @@ def optimize(
         "hgbr": w_layer1.get("hgbr", 0.0),
         "elo": w_layer1.get("elo", 0.0),
         "bayes": w_layer1.get("bayes", 0.0),
-        "poisson": w_layer2.get("poisson", 0.0),  # P0-3 FIX: 保存 poisson
+        "poisson": w_layer2.get("poisson", 0.0),
         "dc": w_layer2.get("dc", 0.0),
         "nb": w_layer2.get("nb", 0.0),
-        "gbm": gbm_weight,
+        "shape_weight": shape_weight,
+        "gbm_weight": gbm_weight,
         "log_loss": w_layer2.get("log_loss", 0.0),
         "n": len(samples_stage2),
         "shrinkage": config.shrinkage,
         "tau": tau,
         "phi": phi,
-        "shape_weight": shape_weight,
-        "gbm_weight": gbm_weight,
     }
     
     metadata = {

@@ -1,5 +1,4 @@
-"""Artifact 写入(审查九 P1-9 拆分):权重/τφ/OOF meta。"""
-
+"""Artifact 写入(Typed Schema)。"""
 from __future__ import annotations
 
 import json
@@ -7,12 +6,12 @@ import os
 
 
 def write_all(weights, params, meta, artifacts_dir: str) -> None:
-    """落盘(审查 f01d7e4 P1-5:权重按 Goal/Score/Outcome 三层视图存储)。"""
+    """落盘(使用 Typed Schema)。"""
     from app.models.ensemble.weights import to_layered
-
+    
     os.makedirs(artifacts_dir, exist_ok=True)
     layered = {
-        lt: (to_layered(w) if not isinstance(w.get("goal_lambda", None), dict) else w)
+        lt: to_layered(w)
         for lt, w in weights.items()
     }
     with open(
