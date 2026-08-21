@@ -1,8 +1,8 @@
-"""PredictionEngine(审查九 P0-1/P1-8 拆分 + 审查十 P0 重构)。
+"""PredictionEngine。
 
 统一预测核心链路(生产 / Walk-forward / Replay / OOF 同一入口)。
 
-审查十 P0-2/P0-3 概率流水线(严格顺序):
+P0-2/P0-3 概率流水线(严格顺序):
   Raw Models(HGBR/DC/NB/ELO/Bayes)→ Model Ensemble → Raw Matrix
       ↓
   Regime / Prior Blend(IPF,目标 1X2 = α·P + (1-α)·近期频率)
@@ -15,7 +15,7 @@
       ↓
   最终矩阵(快照冻结,唯一输出源)
 
-审查十 P0-1 三级异常:
+P0-1 三级异常:
   P0-Core(INVALID_LAMBDA/INVALID_PROBABILITY/ENSEMBLE_FAILURE/
           SCORE_MATRIX_FAILURE/CORE_PREDICTION_FAILURE)→ 直接 raise,
           不生成正式 Snapshot,绝不静默退回纯 HGBR;
@@ -162,7 +162,7 @@ class PredictionEngine:
                 "gbm": _artifact.outcome.get("gbm", 0.0),
             }
             
-            # 权重结构校验(审查十 P0-1:权重损坏不得静默)
+            # 权重结构校验(P0-1:权重损坏不得静默)
             _w_keys = set(_w) - {"log_loss", "n", "shrinkage"}
             # gbm is optional (old format may not have it)
             for _k in ("hgbr", "dc", "nb", "elo", "bayes"):
@@ -181,32 +181,32 @@ class PredictionEngine:
             # P0-1: τ/φ from Artifact
             _tau, _phi = _artifact.tau, _artifact.phi
 
-            _lam_h = home_lambda * _h_mult
-            _lam_a = away_lambda * _a_mult
-            _check_lambda(_lam_h, name="λ_home")
-            _check_lambda(_lam_a, name="λ_away")
-            _lam_eh = elo_goal_lambda(_att_diff, True) * _h_mult
-            _lam_ea = elo_goal_lambda(_att_diff, False) * _a_mult
-            _check_lambda(_lam_eh, name="λ_elo_home")
-            _check_lambda(_lam_ea, name="λ_elo_away")
-            _lam_bh = ctx.get("bayes_lam_h")
-            _lam_ba = ctx.get("bayes_lam_a")
-            if _lam_bh is not None:
-                _check_lambda(_lam_bh, name="λ_bayes_home")
-            if _lam_ba is not None:
-                _check_lambda(_lam_ba, name="λ_bayes_away")
+            lambda_hgbr = home_lambda * _h_mult
+            lambda_away = away_lambda * _a_mult
+            _check_lambda(lambda_hgbr, name="λ_home")
+            _check_lambda(lambda_away, name="λ_away")
+            lambda_elo_h = elo_goal_lambda(_att_diff, True) * _h_mult
+            lambda_elo_a = elo_goal_lambda(_att_diff, False) * _a_mult
+            _check_lambda(lambda_elo_h, name="λ_elo_home")
+            _check_lambda(lambda_elo_a, name="λ_elo_away")
+            lambda_bayes_h = ctx.get("bayes_lam_h")
+            lambda_bayes_a = ctx.get("bayes_lam_a")
+            if lambda_bayes_h is not None:
+                _check_lambda(lambda_bayes_h, name="λ_bayes_home")
+            if lambda_bayes_a is not None:
+                _check_lambda(lambda_bayes_a, name="λ_bayes_away")
 
             try:
                 g = compute_members(
-                    _lam_h,
-                    _lam_a,
-                    _lam_eh,
-                    _lam_ea,
+                    lambda_hgbr,
+                    lambda_away,
+                    lambda_elo_h,
+                    lambda_elo_a,
                     _tau,
                     _phi,
                     _w,
-                    lam_bh=_lam_bh,
-                    lam_ba=_lam_ba,
+                    lam_bh=lambda_bayes_h,
+                    lam_ba=lambda_bayes_a,
                 )
             except Exception as _ce:
                 raise CorePredictionError(
@@ -233,20 +233,30 @@ class PredictionEngine:
             # P0-3: GBM hash 用 file bytes (非 str(model))
             if _gbm is not None and _artifact.gbm_model_hash:
                 import hashlib
+                import time
+
+                from app.core.paths import ARTIFACTS_DIR as _GBM_ARTIFACTS_DIR
                 gbm_path = os.path.join(
-                    str(_get_artifacts_dir()),
+                    str(_GBM_ARTIFACTS_DIR),
                     league_type.value,
                     "gbm.pkl"
                 )
-                try:
-                    with open(gbm_path, "rb") as _gf:
-                        actual_hash = hashlib.sha256(_gf.read()).hexdigest()[:16]
-                except OSError as e:
-                    # P0-4: GBM hash 异常不吞
-                    raise CorePredictionError(
-                        "GBM_HASH_UNAVAILABLE",
-                        f"Cannot read GBM model file for hash verification: {e}"
-                    ) from e
+                # P1: 区分 transient IO error (重试) 与 corruption (P0)
+                max_retries = 3
+                actual_hash = None
+                for attempt in range(max_retries):
+                    try:
+                        with open(gbm_path, "rb") as _gf:
+                            actual_hash = hashlib.sha256(_gf.read()).hexdigest()[:16]
+                        break
+                    except OSError as e:
+                        if attempt < max_retries - 1:
+                            time.sleep(0.1 * (2 ** attempt))
+                            continue
+                        raise CorePredictionError(
+                            "GBM_HASH_UNAVAILABLE",
+                            f"Cannot read GBM model file for hash verification: {e}"
+                        ) from e
                 if actual_hash != _artifact.gbm_model_hash:
                     raise CorePredictionError(
                         "GBM_HASH_MISMATCH",
@@ -354,7 +364,7 @@ class PredictionEngine:
             "lineup_strength": ctx.get("lineup"),
         }
 
-        # ══ P0-3:Regime / IPF —— Final Matrix 唯一输出源(审查十)══
+        # ══ P0-3:Regime / IPF —— Final Matrix 唯一输出源()══
         _m2 = None
         _blend_info = None
         try:
@@ -381,7 +391,7 @@ class PredictionEngine:
                 result["draw_probability"] = round(_dr2, 4)
                 result["away_win_probability"] = round(_aw2, 4)
                 result["prior_blend"] = _blend_info
-                # 审查十 P0-2 配套:校准前最终概率(校准器拟合对象 = 最终输出)
+                # P0-2 配套:校准前最终概率(校准器拟合对象 = 最终输出)
                 result["_pre_calibration_1x2"] = [
                     round(_hw2, 6),
                     round(_dr2, 6),
@@ -483,11 +493,11 @@ class PredictionEngine:
             "gbm_probs": _gbm_probs,  # GBM 1X2(可 None)
             "member_weights": _w,
             "member_lambdas": {
-                "hgbr": (_lam_h, _lam_a),
-                "dc": (_lam_h, _lam_a),
-                "nb": (_lam_h, _lam_a),
-                "elo": (_lam_eh, _lam_ea),
-                "bayes": (_lam_bh, _lam_ba),
+                "hgbr": (lambda_hgbr, lambda_away),
+                "dc": (lambda_hgbr, lambda_away),
+                "nb": (lambda_hgbr, lambda_away),
+                "elo": (lambda_elo_h, lambda_elo_a),
+                "bayes": (lambda_bayes_h, lambda_bayes_a),
             },  # 成员权重(含 gbm 键)
             "tau": _tau,
             "phi": _phi,

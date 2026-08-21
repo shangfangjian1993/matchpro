@@ -222,17 +222,6 @@ class EnsembleWeightsLoader:
         return (default or DEFAULT_WEIGHTS).to_flat()
 
 
-# 向后兼容
-def set_weights_path(path: str | None):
-    """Deprecated: use EnsembleWeightsLoader directly."""
-    pass
-
-
-def load_weights(league_key: str, default=None) -> dict:
-    """Deprecated: use EnsembleWeightsLoader().load()."""
-    return EnsembleWeightsLoader().load(league_key, default)
-
-
 # ── P1-4: 拆分 Layer-1 / Layer-2 optimizer ──
 
 def optimize_goal_lambda_weights(

@@ -16,7 +16,6 @@ from app.models.ensemble.weights import (
     DEFAULT_WEIGHTS,
     learn_weights,
     load_weights,
-    set_weights_path,
 )
 from app.models.negbin.nb import fit_nb_phi, nb_probs
 
@@ -39,5 +38,4 @@ __all__ = [
     "pois_matrix",
     "pois_pmf",
     "score_outputs",
-    "set_weights_path",
 ]
