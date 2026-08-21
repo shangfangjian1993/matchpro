@@ -6,49 +6,49 @@ import os
 
 
 def _artifact_dir(artifacts_dir: str, league: str) -> str:
-    """联赛隔离目录。"""
-    return os.path.join(artifacts_dir, league)
+ """联赛隔离目录。"""
+ return os.path.join(artifacts_dir, league)
 
 
 def write_all(weights, params, meta, artifacts_dir: str) -> None:
-    """落盘(兼容旧格式,league scoped)。"""
-    from app.models.ensemble.weights import to_layered
-    
-    os.makedirs(artifacts_dir, exist_ok=True)
-    
-    for lt, w in weights.items():
-        league_dir = _artifact_dir(artifacts_dir, lt)
-        os.makedirs(league_dir, exist_ok=True)
-        
-        # 旧格式(兼容)
-        layered = to_layered(w)
-        with open(os.path.join(league_dir, "ensemble_weights.json"), "w", encoding="utf-8") as f:
-            json.dump(layered, f, ensure_ascii=False, indent=2)
-    
-    # params 和 meta 按联赛隔离
-    for lt, p in params.items():
-        league_dir = _artifact_dir(artifacts_dir, lt)
-        os.makedirs(league_dir, exist_ok=True)
-        with open(os.path.join(league_dir, "dc_nb_params.json"), "w", encoding="utf-8") as f:
-            json.dump(p, f, ensure_ascii=False, indent=2)
-    
-    for lt, m in meta.items():
-        league_dir = _artifact_dir(artifacts_dir, lt)
-        os.makedirs(league_dir, exist_ok=True)
-        with open(os.path.join(league_dir, "oof_meta.json"), "w", encoding="utf-8") as f:
-            json.dump(m, f, ensure_ascii=False, indent=2)
+ """落盘(兼容旧格式,league scoped)。"""
+ from app.models.ensemble.weights import to_layered
+ 
+ os.makedirs(artifacts_dir, exist_ok=True)
+ 
+ for lt, w in weights.items():
+ league_dir = _artifact_dir(artifacts_dir, lt)
+ os.makedirs(league_dir, exist_ok=True)
+ 
+ # 旧格式(兼容)
+ layered = to_layered(w)
+ with open(os.path.join(league_dir, "ensemble_weights.json"), "w", encoding="utf-8") as f:
+ json.dump(layered, f, ensure_ascii=False, indent=2)
+ 
+ # params 和 meta 按联赛隔离
+ for lt, p in params.items():
+ league_dir = _artifact_dir(artifacts_dir, lt)
+ os.makedirs(league_dir, exist_ok=True)
+ with open(os.path.join(league_dir, "dc_nb_params.json"), "w", encoding="utf-8") as f:
+ json.dump(p, f, ensure_ascii=False, indent=2)
+ 
+ for lt, m in meta.items():
+ league_dir = _artifact_dir(artifacts_dir, lt)
+ os.makedirs(league_dir, exist_ok=True)
+ with open(os.path.join(league_dir, "oof_meta.json"), "w", encoding="utf-8") as f:
+ json.dump(m, f, ensure_ascii=False, indent=2)
 
 
 def write_production_artifact(artifact, artifacts_dir: str) -> str:
-    """写入 ProductionArtifact (League Scoped + 全精度)。
-    
-    P0-1: 每个联赛写入各自目录,不会覆盖。
-    P1-6: 全精度序列化,无 round/renormalize。
-    """
-    league_dir = _artifact_dir(artifacts_dir, artifact.league)
-    os.makedirs(league_dir, exist_ok=True)
-    
-    path = os.path.join(league_dir, "production_artifact.json")
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(artifact.to_json())
-    return path
+ """写入 ProductionArtifact (League Scoped + 全精度)。
+ 
+ : 每个联赛写入各自目录,不会覆盖。
+ : 全精度序列化,无 round/renormalize。
+ """
+ league_dir = _artifact_dir(artifacts_dir, artifact.league)
+ os.makedirs(league_dir, exist_ok=True)
+ 
+ path = os.path.join(league_dir, "production_artifact.json")
+ with open(path, "w", encoding="utf-8") as f:
+ f.write(artifact.to_json())
+ return path

@@ -23,214 +23,214 @@ logger = logging.getLogger(__name__)
 
 # api-football league id(5 大联赛)
 LEAGUE_IDS = {
-    "premier_league": 39,
-    "la_liga": 140,
-    "bundesliga": 78,
-    "serie_a": 135,
-    "ligue_1": 61,
+ "premier_league": 39,
+ "la_liga": 140,
+ "bundesliga": 78,
+ "serie_a": 135,
+ "ligue_1": 61,
 }
 
 # statistic type → (matches 列 主, 客)
 _STAT_MAP = {
-    "Total Shots": ("home_shots", "away_shots"),
-    "Shots on Goal": ("home_shots_on_target", "away_shots_on_target"),
-    # 控球:maches 仅 home_possession 列(客队 = 100 - 主;由特征层推)
-    "Ball Possession": ("home_possession", None),
-    "Corner Kicks": ("home_corners", "away_corners"),
-    "Yellow Cards": ("home_yellow_cards", "away_yellow_cards"),
-    "Red Cards": ("home_red_cards", "away_red_cards"),
-    "Passes %": ("home_passing_accuracy", "away_passing_accuracy"),
+ "Total Shots": ("home_shots", "away_shots"),
+ "Shots on Goal": ("home_shots_on_target", "away_shots_on_target"),
+ # 控球:maches 仅 home_possession 列(客队 = 100 - 主;由特征层推)
+ "Ball Possession": ("home_possession", None),
+ "Corner Kicks": ("home_corners", "away_corners"),
+ "Yellow Cards": ("home_yellow_cards", "away_yellow_cards"),
+ "Red Cards": ("home_red_cards", "away_red_cards"),
+ "Passes %": ("home_passing_accuracy", "away_passing_accuracy"),
 }
 
 _TEAM_ALIAS = {
-    "manchester united": "man united",
-    "manchester city": "man city",
-    "wolverhampton": "wolves",
-    "nottingham": "nottingham",
-    "brighton": "brighton",
-    "west ham": "west ham",
-    "paris saint germain": "psg",
-    "paris saintgermain": "psg",
-    "internazionale milano": "inter milan",
-    "inter milan": "inter milan",
-    "borussia monchengladbach": "gladbach",
-    "borussia dortmund": "dortmund",
-    "germain": "psg",
+ "manchester united": "man united",
+ "manchester city": "man city",
+ "wolverhampton": "wolves",
+ "nottingham": "nottingham",
+ "brighton": "brighton",
+ "west ham": "west ham",
+ "paris saint germain": "psg",
+ "paris saintgermain": "psg",
+ "internazionale milano": "inter milan",
+ "inter milan": "inter milan",
+ "borussia monchengladbach": "gladbach",
+ "borussia dortmund": "dortmund",
+ "germain": "psg",
 }
 
 
 def _fuzzy(a_norm: str, b_norm: str) -> bool:
-    """token 集合模糊匹配:共同 token 数 ≥ 双方 token 数 60%。"""
-    if not a_norm or not b_norm:
-        return False
-    if a_norm == b_norm:
-        return True
-    sa, sb = set(a_norm.split()), set(b_norm.split())
-    common = sa & sb
-    if not common:
-        return False
-    # 常规:共同 token ≥ 60% · 二单 token 时其包含关系也算(如 "inter" vs "inter milan")
-    if len(common) >= 0.6 * max(len(sa), len(sb)):
-        return True
-    return (len(sa) == 1 and sa <= sb) or (len(sb) == 1 and sb <= sa)
+ """token 集合模糊匹配:共同 token 数 ≥ 双方 token 数 60%。"""
+ if not a_norm or not b_norm:
+ return False
+ if a_norm == b_norm:
+ return True
+ sa, sb = set(a_norm.split()), set(b_norm.split())
+ common = sa & sb
+ if not common:
+ return False
+ # 常规:共同 token ≥ 60% · 二单 token 时其包含关系也算(如 "inter" vs "inter milan")
+ if len(common) >= 0.6 * max(len(sa), len(sb)):
+ return True
+ return (len(sa) == 1 and sa <= sb) or (len(sb) == 1 and sb <= sa)
 
 
 def _key() -> str:
-    k = os.environ.get("API_FOOTBALL_KEY") or ""
-    if not k:
-        with open(
-            os.path.join(
-                str(
-                    __import__("app.core.paths", fromlist=["PROJECT_ROOT"]).PROJECT_ROOT
-                ),
-                ".env",
-            ),
-            encoding="utf-8",
-        ) as _env_f:
-            for line in _env_f:
-                if line.startswith("API_FOOTBALL_KEY"):
-                    k = line.split("=", 1)[1].strip()
-                    break
-        return k
+ k = os.environ.get("API_FOOTBALL_KEY") or ""
+ if not k:
+ with open(
+ os.path.join(
+ str(
+ __import__("app.core.paths", fromlist=["PROJECT_ROOT"]).PROJECT_ROOT
+ ),
+ ".env",
+ ),
+ encoding="utf-8",
+ ) as _env_f:
+ for line in _env_f:
+ if line.startswith("API_FOOTBALL_KEY"):
+ k = line.split("=", 1)[1].strip()
+ break
+ return k
 
-    def _norm(name: str) -> str:
-        n = re.sub(r"\b(?:fc|cf|sc|afc|acf|wanderers)\b", "", str(name).lower())
-        n = re.sub(r"[^a-z0-9 ]", "", n)
-        n = re.sub(r"\s+", " ", n).strip()
-        return _TEAM_ALIAS.get(n, n)
+ def _norm(name: str) -> str:
+ n = re.sub(r"\b(?:fc|cf|sc|afc|acf|wanderers)\b", "", str(name).lower())
+ n = re.sub(r"[^a-z0-9 ]", "", n)
+ n = re.sub(r"\s+", " ", n).strip()
+ return _TEAM_ALIAS.get(n, n)
 
-    def _get(url: str) -> dict:
-        """带限速+退避的 GET(free 层 429 限流)。"""
-        import time
+ def _get(url: str) -> dict:
+ """带限速+退避的 GET(free 层 429 限流)。"""
+ import time
 
-        for attempt in range(4):
-            req = urllib.request.Request(url, headers={"x-apisports-key": _key()})
-            try:
-                with urllib.request.urlopen(req, timeout=25) as r:
-                    return json.load(r)
-            except urllib.error.HTTPError as e:
-                if e.code == 429 and attempt < 3:
-                    time.sleep(2.0 * (attempt + 1))
-                    continue
-                raise
-            except Exception:
-                time.sleep(1.0)
-        raise RuntimeError("api-football 请求重试耗尽")
+ for attempt in range(4):
+ req = urllib.request.Request(url, headers={"x-apisports-key": _key()})
+ try:
+ with urllib.request.urlopen(req, timeout=25) as r:
+ return json.load(r)
+ except urllib.error.HTTPError as e:
+ if e.code == 429 and attempt < 3:
+ time.sleep(2.0 * (attempt + 1))
+ continue
+ raise
+ except Exception:
+ time.sleep(1.0)
+ raise RuntimeError("api-football 请求重试耗尽")
 
-    def _season_of(date):
-        """由场次日期推断 api 赛季起始年:8 月起算新赛季。"""
-        if hasattr(date, "month"):
-            return str(date.year if date.month >= 8 else date.year - 1)
-        return str(date)[:4]
+ def _season_of(date):
+ """由场次日期推断 api 赛季起始年:8 月起算新赛季。"""
+ if hasattr(date, "month"):
+ return str(date.year if date.month >= 8 else date.year - 1)
+ return str(date)[:4]
 
-    _FIXTURE_CACHE: dict = {}
+ _FIXTURE_CACHE: dict = {}
 
-    def _fixture_id(
-        league_id: int, season: str, date: str, home: str, away: str
-    ) -> int | None:
-        """按日期+球队找 api fixture id(1 次 fixtures 调用/日期,模块级缓存复用)。"""
-        ckey = (league_id, season, date)
-        if ckey not in _FIXTURE_CACHE:
-            _FIXTURE_CACHE[ckey] = _get(
-                f"https://v3.football.api-sports.io/fixtures?league={league_id}"
-                f"&season={season}&from={date}&to={date}"
-            )
-        d = _FIXTURE_CACHE[ckey]
-        for f in d.get("response", []):
-            hn, an = (
-                _norm(f["teams"]["home"]["name"]),
-                _norm(f["teams"]["away"]["name"]),
-            )
-            dbh, dba = _norm(home), _norm(away)
-            if _fuzzy(hn, dbh) and _fuzzy(an, dba):
-                return f["fixture"]["id"]
-        return None
+ def _fixture_id(
+ league_id: int, season: str, date: str, home: str, away: str
+ ) -> int | None:
+ """按日期+球队找 api fixture id(1 次 fixtures 调用/日期,模块级缓存复用)。"""
+ ckey = (league_id, season, date)
+ if ckey not in _FIXTURE_CACHE:
+ _FIXTURE_CACHE[ckey] = _get(
+ f"https://v3.football.api-sports.io/fixtures?league={league_id}"
+ f"&season={season}&from={date}&to={date}"
+ )
+ d = _FIXTURE_CACHE[ckey]
+ for f in d.get("response", []):
+ hn, an = (
+ _norm(f["teams"]["home"]["name"]),
+ _norm(f["teams"]["away"]["name"]),
+ )
+ dbh, dba = _norm(home), _norm(away)
+ if _fuzzy(hn, dbh) and _fuzzy(an, dba):
+ return f["fixture"]["id"]
+ return None
 
-    def available() -> bool:
-        return bool(_key())
+ def available() -> bool:
+ return bool(_key())
 
-    def enrich_matches(
-        league_type, rows, season: str = "2024", verbose: bool = True
-    ) -> dict:
-        """批量回填:rows 为已完赛且统计缺失的 Match 列表(同联赛)。
-        返回 {"attempted": n, "updated": n, "unmatched": n, "errors": n, "calls": n}。
-        注意:每场 statistics 计 1 次调用;free 套餐 100/天,分批执行。
-        """
-        league_id = LEAGUE_IDS.get(league_type.value)
-        if league_id is None:
-            return {
-                "attempted": len(rows),
-                "updated": 0,
-                "unmatched": len(rows),
-                "errors": 0,
-                "calls": 0,
-            }
-        from app.api.db import db
+ def enrich_matches(
+ league_type, rows, season: str = "2024", verbose: bool = True
+ ) -> dict:
+ """批量回填:rows 为已完赛且统计缺失的 Match 列表(同联赛)。
+ 返回 {"attempted": n, "updated": n, "unmatched": n, "errors": n, "calls": n}。
+ 注意:每场 statistics 计 1 次调用;free 套餐 100/天,分批执行。
+ """
+ league_id = LEAGUE_IDS.get(league_type.value)
+ if league_id is None:
+ return {
+ "attempted": len(rows),
+ "updated": 0,
+ "unmatched": len(rows),
+ "errors": 0,
+ "calls": 0,
+ }
+ from app.api.db import db
 
-        updated = unmatched = errors = calls = 0
-        key = _key()
-        if not key:
-            logger.error("缺少 API_FOOTBALL_KEY")
-            return {
-                "attempted": len(rows),
-                "updated": 0,
-                "unmatched": len(rows),
-                "errors": 0,
-                "calls": 0,
-            }
-        for m in rows:
-            date = str(m.match_date.date())
-            try:
-                fid = _fixture_id(
-                    league_id, _season_of(m.match_date), date, m.home_team, m.away_team
-                )
-                calls += 1
-                if fid is None:
-                    unmatched += 1
-                    continue
-                import time as _time
+ updated = unmatched = errors = calls = 0
+ key = _key()
+ if not key:
+ logger.error("缺少 API_FOOTBALL_KEY")
+ return {
+ "attempted": len(rows),
+ "updated": 0,
+ "unmatched": len(rows),
+ "errors": 0,
+ "calls": 0,
+ }
+ for m in rows:
+ date = str(m.match_date.date())
+ try:
+ fid = _fixture_id(
+ league_id, _season_of(m.match_date), date, m.home_team, m.away_team
+ )
+ calls += 1
+ if fid is None:
+ unmatched += 1
+ continue
+ import time as _time
 
-                _time.sleep(0.4)  # free 限速控制
-                d = _get(
-                    f"https://v3.football.api-sports.io/fixtures/statistics?fixture={fid}"
-                )
-                calls += 1
-                resp = d.get("response") or []
-                if len(resp) != 2:
-                    unmatched += 1
-                    continue
-                home_stats = {s["type"]: s["value"] for s in resp[0]["statistics"]}
-                away_stats = {s["type"]: s["value"] for s in resp[1]["statistics"]}
+ _time.sleep(0.4) # free 限速控制
+ d = _get(
+ f"https://v3.football.api-sports.io/fixtures/statistics?fixture={fid}"
+ )
+ calls += 1
+ resp = d.get("response") or []
+ if len(resp) != 2:
+ unmatched += 1
+ continue
+ home_stats = {s["type"]: s["value"] for s in resp[0]["statistics"]}
+ away_stats = {s["type"]: s["value"] for s in resp[1]["statistics"]}
 
-                def _num(v):
-                    try:
-                        if v is None:
-                            return None
-                        s = str(v).strip().replace("%", "")
-                        return float(s) if s else None
-                    except Exception:
-                        return None
+ def _num(v):
+ try:
+ if v is None:
+ return None
+ s = str(v).strip().replace("%", "")
+ return float(s) if s else None
+ except Exception:
+ return None
 
-                existing = {col.name for col in m.__table__.columns}
-                for stat_type, (hc, ac) in _STAT_MAP.items():
-                    if hc and hc in existing:
-                        hv = _num(home_stats.get(stat_type))
-                        if hv is not None:
-                            setattr(m, hc, hv)
-                    if ac and ac in existing:
-                        av = _num(away_stats.get(stat_type))
-                        if av is not None:
-                            setattr(m, ac, av)
-                updated += 1
-            except Exception as e:
-                errors += 1
-                if verbose and errors <= 3:
-                    logger.warning("回填失败 %s vs %s: %s", m.home_team, m.away_team, e)
-        db.session.commit()
-        return {
-            "attempted": len(rows),
-            "updated": updated,
-            "unmatched": unmatched,
-            "errors": errors,
-            "calls": calls,
-        }
+ existing = {col.name for col in m.__table__.columns}
+ for stat_type, (hc, ac) in _STAT_MAP.items():
+ if hc and hc in existing:
+ hv = _num(home_stats.get(stat_type))
+ if hv is not None:
+ setattr(m, hc, hv)
+ if ac and ac in existing:
+ av = _num(away_stats.get(stat_type))
+ if av is not None:
+ setattr(m, ac, av)
+ updated += 1
+ except Exception as e:
+ errors += 1
+ if verbose and errors <= 3:
+ logger.warning("回填失败 %s vs %s: %s", m.home_team, m.away_team, e)
+ db.session.commit()
+ return {
+ "attempted": len(rows),
+ "updated": updated,
+ "unmatched": unmatched,
+ "errors": errors,
+ "calls": calls,
+ }

@@ -9,27 +9,27 @@ from datetime import datetime, timezone
 
 
 def utcnow() -> datetime:
-    """当前 UTC 时间(naive,与 datetime.utcnow() 语义一致,无弃用警告)。"""
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+ """当前 UTC 时间(naive,与 datetime.utcnow() 语义一致,无弃用警告)。"""
+ return datetime.now(timezone.utc).replace(tzinfo=None)
 
 def as_utc_naive(value):
-    """统一时间基准(返回 naive UTC datetime)。
+ """统一时间基准(返回 naive UTC datetime)。
 
-    所有 cutoff/compare 都以 **UTC naive** 为锚:world aware → 转 UTC 并去
-    tzinfo;naive 视为 UTC 原样。避免 tz-naive/tz-aware 混比 TypeError 或
-    cutoff 偏移(数据库 match_date 多为 naive,bzzoiro 导入时已去 tz)。
-    """
-    if value is None:
-        return None
-    if isinstance(value, datetime):
-        if value.tzinfo is not None:
-            return value.astimezone(timezone.utc).replace(tzinfo=None)
-        return value
-    # 尝试解析字符串
-    if isinstance(value, str):
-        # ISO format with timezone
-        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        if dt.tzinfo is not None:
-            return dt.astimezone(timezone.utc).replace(tzinfo=None)
-        return dt
-    return value
+ 所有 cutoff/compare 都以 **UTC naive** 为锚:world aware → 转 UTC 并去
+ tzinfo;naive 视为 UTC 原样。避免 tz-naive/tz-aware 混比 TypeError 或
+ cutoff 偏移(数据库 match_date 多为 naive,bzzoiro 导入时已去 tz)。
+ """
+ if value is None:
+ return None
+ if isinstance(value, datetime):
+ if value.tzinfo is not None:
+ return value.astimezone(timezone.utc).replace(tzinfo=None)
+ return value
+ # 尝试解析字符串
+ if isinstance(value, str):
+ # ISO format with timezone
+ dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+ if dt.tzinfo is not None:
+ return dt.astimezone(timezone.utc).replace(tzinfo=None)
+ return dt
+ return value

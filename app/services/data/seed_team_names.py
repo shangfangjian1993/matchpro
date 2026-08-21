@@ -1,7 +1,7 @@
 """种子导入:把内置队名映射写入 team_names 表(幂等,可重复执行)。
 
 用法:
-    python scripts/seed_team_names.py
+ python scripts/seed_team_names.py
 """
 
 import os
@@ -13,17 +13,17 @@ from app.services.cli import run, setup_logging
 
 
 def main() -> int:
-    setup_logging("INFO")
+ setup_logging("INFO")
 
-    from app.api.db import init_db, session_scope
-    from app.data.canonical.team_names_zh import seed_from_builtin
+ from app.api.db import init_db, session_scope
+ from app.data.canonical.team_names_zh import seed_from_builtin
 
-    init_db()
-    with session_scope():
-        n = seed_from_builtin()
-    print(f"✅ 种子导入完成(新增/更新 {n} 条;共 269 条映射)")
-    return 0
+ init_db()
+ with session_scope():
+ n = seed_from_builtin()
+ print(f"✅ 种子导入完成(新增/更新 {n} 条;共 269 条映射)")
+ return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(run(main))
+ raise SystemExit(run(main))
