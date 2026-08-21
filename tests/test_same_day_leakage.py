@@ -10,8 +10,8 @@ from unittest.mock import MagicMock
 
 # 创建 mock 模型对象
 def _mock_model(*args, **kwargs):
- model = MagicMock()
- model.model = MagicMock()
- model.model.predict = MagicMock(return_value=([1.5, 1.2],))
- model.feature_columns_ = []
- return model
+    model = MagicMock()
+    model.model = MagicMock()
+    model.model.predict = MagicMock(return_value=([1.5, 1.2],))
+    model.feature_columns_ = []
+    return model
