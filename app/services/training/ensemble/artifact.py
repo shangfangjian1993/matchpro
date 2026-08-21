@@ -13,13 +13,15 @@ import hashlib
 
 @dataclass(frozen=True)
 class CalibrationArtifact:
-    """Calibration 子-artifact。"""
+    """Calibration 子-artifact(包含真实 learned state)。"""
     method: str  # "beta", "platt", "isotonic"
     artifact_hash: str
-    training_cutoff: str  # ISO date
+    training_cutoff: str  # ISO date (真实数据截止时间)
     temporal_oof: bool
     val_ece: float
     test_ece: Optional[float] = None
+    # P0-4: 保存真实 learned parameters
+    params: dict = field(default_factory=dict)  # {a, b} for Platt, {a, b, c} for Beta, etc.
 
 
 @dataclass(frozen=True)
@@ -34,20 +36,27 @@ class PriorArtifact:
 class LineageInfo:
     """Artifact 血统信息。"""
     artifact_version: str = "ensemble-v3"
+    schema_version: int = 1
     model_version: str = ""
     feature_version: str = ""
-    training_cutoff: str = ""  # ISO date
+    training_cutoff: str = ""  # ISO date (真实数据截止时间)
     oof_method: str = "expanding-window"
     oof_segments: int = 6
     oof_n: int = 0
     shrinkage: float = 0.15
-    created_at: str = ""
+    created_at: str = ""  # Artifact 创建时间
+    training_data_hash: str = ""
+    calibration_hash: str = ""
+    prior_hash: str = ""
 
 
 @dataclass(frozen=True)
 class ProductionArtifact:
-    """生产模型完整 artifact(唯一输入)。"""
-    # Ensemble weights
+    """生产模型完整 artifact(唯一输入)。
+    
+    P0-3: 使用 typed schema (EnsembleWeights),而非 dict。
+    """
+    # Ensemble weights (typed)
     goal_lambda: dict  # {hgbr, elo, bayes}
     score_distribution: dict  # {poisson, dc, nb}
     outcome: dict  # {shape, gbm}
@@ -80,7 +89,10 @@ class ProductionArtifact:
     
     @classmethod
     def from_dict(cls, data: dict) -> ProductionArtifact:
-        """从 dict 反序列化。"""
+        """从 dict 反序列化。
+        
+        P0-2 FIX: 正确恢复 calibration 和 prior。
+        """
         cal = None
         if data.get("calibration"):
             cal = CalibrationArtifact(**data["calibration"])
@@ -94,8 +106,8 @@ class ProductionArtifact:
             outcome=data["outcome"],
             tau=data["tau"],
             phi=data["phi"],
-            calibration=cal,
-            prior=prior,
+            calibration=cal,  # P0-2 FIX: 传入 calibration
+            prior=prior,       # P0-2 FIX: 传入 prior
             lineage=lineage,
         )
     
@@ -104,8 +116,27 @@ class ProductionArtifact:
         """从 JSON 反序列化。"""
         return cls.from_dict(json.loads(json_str))
     
-    def content_hash(self) -> str:
-        """内容哈希(用于 snapshot 冻结)。"""
+    def model_hash(self) -> str:
+        """模型内容哈希(不含 created_at,用于判断模型数学内容是否一致)。
+        
+        P1-6 FIX: 与 created_at 解耦。
+        """
+        content = json.dumps({
+            "goal_lambda": self.goal_lambda,
+            "score_distribution": self.score_distribution,
+            "outcome": self.outcome,
+            "tau": self.tau,
+            "phi": self.phi,
+            "calibration": self.calibration.__dict__ if self.calibration else None,
+            "prior": self.prior.__dict__ if self.prior else None,
+            "training_cutoff": self.lineage.training_cutoff,
+            "oof_segments": self.lineage.oof_segments,
+            "shrinkage": self.lineage.shrinkage,
+        }, sort_keys=True)
+        return hashlib.sha256(content.encode()).hexdigest()[:16]
+    
+    def artifact_hash(self) -> str:
+        """完整 artifact 哈希(含 created_at)。"""
         content = json.dumps(self.to_dict(), sort_keys=True)
         return hashlib.sha256(content.encode()).hexdigest()[:16]
 
@@ -118,8 +149,14 @@ def create_production_artifact(
     feature_version: str = "",
     oof_n: int = 0,
     shrinkage: float = 0.15,
+    training_cutoff: str = "",  # P1-5: 真实数据截止时间
+    calibration: Optional[CalibrationArtifact] = None,
+    prior: Optional[PriorArtifact] = None,
 ) -> ProductionArtifact:
-    """从训练输出创建 ProductionArtifact。"""
+    """从训练输出创建 ProductionArtifact。
+    
+    P1-5 FIX: training_cutoff 由调用方传入,不使用 datetime.now()。
+    """
     return ProductionArtifact(
         goal_lambda={
             "hgbr": weights.get("hgbr", 0.5),
@@ -137,10 +174,12 @@ def create_production_artifact(
         },
         tau=tau,
         phi=phi,
+        calibration=calibration,
+        prior=prior,
         lineage=LineageInfo(
             model_version=model_version,
             feature_version=feature_version,
-            training_cutoff=datetime.now(timezone.utc).isoformat(),
+            training_cutoff=training_cutoff,  # P1-5: 使用传入的真实 cutoff
             oof_segments=6,
             oof_n=oof_n,
             shrinkage=shrinkage,

@@ -17,7 +17,10 @@ from app.models.ensemble.weights import DEFAULT_WEIGHTS, to_layered, from_layere
 from app.prediction.layered_pipeline import compute_prediction, AblationMask
 from app.prediction.engine import PredictionEngine
 from app.prediction.context import ContextBuilder
-from app.services.training.ensemble.artifact import ProductionArtifact, create_production_artifact
+from app.services.training.ensemble.artifact import (
+    ProductionArtifact, CalibrationArtifact, PriorArtifact, LineageInfo,
+    create_production_artifact,
+)
 
 
 class TestRoundtripParity:
@@ -59,7 +62,7 @@ class TestRoundtripParity:
         assert restored.goal_lambda == artifact.goal_lambda
         assert restored.score_distribution == artifact.score_distribution
         assert restored.outcome == artifact.outcome
-        assert restored.content_hash() == artifact.content_hash()
+        assert restored.artifact_hash() == artifact.artifact_hash()
     
     def test_prediction_deterministic(self):
         """相同输入 → 相同输出(确定性)。"""
@@ -94,7 +97,6 @@ class TestRoundtripParity:
         )
         
         if result is not None:
-            # 验证输出包含必要字段
             assert result.final_1x2 is not None
             assert len(result.final_1x2) == 3
             assert abs(sum(result.final_1x2) - 1.0) < 0.01
@@ -112,7 +114,7 @@ class TestArtifactIntegrity:
             tau=0.05, phi=50.0,
         )
         
-        assert artifact.content_hash() == artifact.content_hash()
+        assert artifact.artifact_hash() == artifact.artifact_hash()
     
     def test_content_hash_changes_with_weights(self):
         """权重变化 → hash 变化。"""
@@ -125,7 +127,80 @@ class TestArtifactIntegrity:
             tau=0.05, phi=50.0,
         )
         
-        assert a1.content_hash() != a2.content_hash()
+        assert a1.artifact_hash() != a2.artifact_hash()
+    
+    def test_model_hash_excludes_created_at(self):
+        """P1-6: model_hash 不包含 created_at。"""
+        a1 = create_production_artifact(
+            weights={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape_weight": 0.7, "gbm_weight": 0.3},
+            tau=0.05, phi=50.0,
+        )
+        a2 = create_production_artifact(
+            weights={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape_weight": 0.7, "gbm_weight": 0.3},
+            tau=0.05, phi=50.0,
+        )
+        
+        # model_hash 应该相同(因为 created_at 不影响)
+        assert a1.model_hash() == a2.model_hash()
+        # artifact_hash 应该不同(因为 created_at 不同)
+        assert a1.artifact_hash() != a2.artifact_hash()
+
+
+class TestCalibrationPriorRoundtrip:
+    """P0-2: Calibration/Prior round-trip 测试。"""
+    
+    def test_calibration_roundtrip(self):
+        """CalibrationArtifact 经过 JSON round-trip 后保持完整。"""
+        cal = CalibrationArtifact(
+            method="isotonic",
+            artifact_hash="abc123def456",
+            training_cutoff="2026-08-01T00:00:00+00:00",
+            temporal_oof=True,
+            val_ece=0.031,
+            test_ece=0.028,
+            params={"thresholds": [0.1, 0.5, 0.9], "values": [0.08, 0.48, 0.88]},
+        )
+        
+        artifact = ProductionArtifact(
+            goal_lambda={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2},
+            score_distribution={"poisson": 0.5, "dc": 0.3, "nb": 0.2},
+            outcome={"shape": 0.7, "gbm": 0.3},
+            tau=0.05,
+            phi=50.0,
+            calibration=cal,
+        )
+        
+        restored = ProductionArtifact.from_json(artifact.to_json())
+        
+        assert restored.calibration is not None
+        assert restored.calibration.method == "isotonic"
+        assert restored.calibration.artifact_hash == "abc123def456"
+        assert restored.calibration.val_ece == 0.031
+        assert restored.calibration.params["thresholds"] == [0.1, 0.5, 0.9]
+    
+    def test_prior_roundtrip(self):
+        """PriorArtifact 经过 JSON round-trip 后保持完整。"""
+        prior = PriorArtifact(
+            window=100,
+            alpha=0.6,
+            min_history=50,
+        )
+        
+        artifact = ProductionArtifact(
+            goal_lambda={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2},
+            score_distribution={"poisson": 0.5, "dc": 0.3, "nb": 0.2},
+            outcome={"shape": 0.7, "gbm": 0.3},
+            tau=0.05,
+            phi=50.0,
+            prior=prior,
+        )
+        
+        restored = ProductionArtifact.from_json(artifact.to_json())
+        
+        assert restored.prior is not None
+        assert restored.prior.window == 100
+        assert restored.prior.alpha == 0.6
+        assert restored.prior.min_history == 50
 
 
 if __name__ == "__main__":
