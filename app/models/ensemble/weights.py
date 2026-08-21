@@ -130,8 +130,8 @@ def _flat_to_layered(flat: dict) -> dict:
     ssum = sum(sd.values()) or 1.0
     
     outcome = {
-        "shape": float(flat.get("shape_weight", 1.0)),
-        "gbm": float(flat.get("gbm_weight", flat.get("gbm", 0.0))),
+        "shape": float(flat.get("shape", flat.get("shape_weight", 1.0))),
+        "gbm": float(flat.get("gbm", flat.get("gbm_weight", 0.0))),
     }
     
     return {
