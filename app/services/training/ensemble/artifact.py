@@ -117,9 +117,12 @@ class ProductionArtifact:
         if abs(shape + gbm - 1.0) > 1e-9:
             raise ValueError(f"Layer-3 weights sum={shape + gbm:.4f}, expected 1.0")
         
-        # Validate tau and phi
+        # Validate tau (Dixon-Coles low-score correction)
         if not math.isfinite(self.tau):
             raise ValueError(f"tau={self.tau} is not finite")
+        if abs(self.tau) > 0.5:
+            raise ValueError(f"tau={self.tau} exceeds reasonable range [-0.5, 0.5]")
+        # Validate phi (Negative Binomial overdispersion)
         if not math.isfinite(self.phi) or self.phi <= 0:
             raise ValueError(f"phi={self.phi} must be finite and > 0")
     

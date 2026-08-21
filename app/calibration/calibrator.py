@@ -54,43 +54,33 @@ class Calibrator:
     def fit_beta(
         cls, probs: np.ndarray, labels: np.ndarray, max_iter: int = 1000
     ) -> Calibrator:
-        """Beta 校准(三分类):P_cal[i] ∝ exp(alpha_i + beta_i * log(p_i))。"""
+        """Beta 校准(三分类):P_cal[i] ∝ exp(alpha_i + beta_i * log(p_i))。
+        
+        使用 scipy.optimize.minimize 替代自定义 Adam + 有限差分。
+        """
+        from scipy.optimize import minimize
+        
         n, k = probs.shape
-        alpha = np.zeros(k)
-        beta = np.ones(k)
-
+        
         def _nll(params):
             a = params[:k]
             b = params[k:]
             logp = np.log(np.clip(probs, 1e-9, 1.0))
             soft = _softmax(a[None, :] + b[None, :] * logp)
             return -np.mean(np.log(np.clip(soft[np.arange(n), labels], 1e-9, 1.0)))
-
-        params = np.concatenate([alpha, beta])
-        m = np.zeros_like(params)
-        v = np.zeros_like(params)
-        lr, beta1, beta2, eps = 0.1, 0.9, 0.999, 1e-8
-        best, best_params = float("inf"), params.copy()
-        for step in range(max_iter):
-            grad = np.zeros_like(params)
-            h = 1e-5
-            for i in range(len(params)):
-                pp = params.copy()
-                pp[i] += h
-                pm = params.copy()
-                pm[i] -= h
-                grad[i] = (_nll(pp) - _nll(pm)) / (2 * h)
-            m = beta1 * m + (1 - beta1) * grad
-            v = beta2 * v + (1 - beta2) * grad * grad
-            mhat = m / (1 - beta1 ** (step + 1))
-            vhat = v / (1 - beta2 ** (step + 1))
-            params -= lr * mhat / (np.sqrt(vhat) + eps)
-            val = _nll(params)
-            if val < best:
-                best, best_params = val, params.copy()
-            if step > 50 and step % 100 == 0 and abs(best - val) < 1e-6:
-                break
-        return cls(alpha=best_params[:k], beta=best_params[k:], fitted_n=n)
+        
+        # 初始值: alpha=0, beta=1
+        x0 = np.concatenate([np.zeros(k), np.ones(k)])
+        
+        result = minimize(
+            _nll, x0, method="L-BFGS-B",
+            options={"maxiter": max_iter, "ftol": 1e-12, "gtol": 1e-8},
+        )
+        
+        if not result.success:
+            raise ValueError(f"Beta calibration optimization failed: {result.message}")
+        
+        return cls(alpha=result.x[:k], beta=result.x[k:], fitted_n=n)
 
     @classmethod
     def fit_platt(cls, probs: np.ndarray, labels: np.ndarray) -> Calibrator:

@@ -31,7 +31,7 @@ class TestRoundtripParity:
         restored = from_layered(layered)
         
         for k, v in original.items():
-            assert abs(restored.get(k, 0) - v) < 0.01, f"{k}: {restored.get(k)} != {v}"
+            assert abs(restored.get(k, 0) - v) < 1e-6, f"{k}: {restored.get(k)} != {v}"
     
     def test_production_artifact_roundtrip(self):
         """ProductionArtifact JSON round-trip。"""

@@ -48,6 +48,49 @@ def db_ctx():
         yield
 
 
+@pytest.fixture(autouse=True)
+def _setup_production_artifact(tmp_path, monkeypatch):
+    """Create production_artifact.json for all tests that need it."""
+    import json
+    
+    fixture = {
+        "league": "premier_league",
+        "goal_lambda": {"hgbr": 0.52, "elo": 0.29, "bayes": 0.19},
+        "score_distribution": {"poisson": 0.48, "dc": 0.32, "nb": 0.20},
+        "outcome": {"shape": 0.73, "gbm": 0.27},
+        "tau": -0.071,
+        "phi": 2.31,
+        "gbm_model_path": "",
+        "gbm_model_hash": "",
+        "calibration": None,
+        "prior": None,
+        "lineage": {
+            "artifact_version": "ensemble-v3",
+            "schema_version": 1,
+            "model_version": "test",
+            "feature_version": "test",
+            "training_cutoff": "2026-08-01",
+            "oof_method": "expanding-window",
+            "oof_segments": 6,
+            "oof_n": 600,
+            "shrinkage": 0.15,
+            "created_at": "2026-08-21T00:00:00+00:00",
+            "training_data_hash": "test",
+            "calibration_hash": "",
+            "prior_hash": "",
+            "gbm_hash": ""
+        }
+    }
+    
+    artifact_dir = tmp_path / "ensemble" / "premier_league"
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    artifact_path = artifact_dir / "production_artifact.json"
+    artifact_path.write_text(json.dumps(fixture), encoding="utf-8")
+    
+    import app.core.paths as _paths
+    monkeypatch.setattr(_paths, "ARTIFACTS_DIR", tmp_path, raising=False)
+
+
 @pytest.fixture
 def setup_production_artifact(tmp_path):
     """Create a production_artifact.json for testing."""

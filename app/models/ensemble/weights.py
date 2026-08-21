@@ -91,8 +91,8 @@ class EnsembleWeights:
             "poisson": self.score_distribution.poisson,
             "dc": self.score_distribution.dc,
             "nb": self.score_distribution.nb,
-            "shape_weight": self.outcome.shape,
-            "gbm_weight": self.outcome.gbm,
+            "shape": self.outcome.shape,
+            "gbm": self.outcome.gbm,
         }
 
 
@@ -176,16 +176,61 @@ def _is_layered(data) -> bool:
     return isinstance(data, dict) and "goal_lambda" in data and "score_distribution" in data
 
 
-_WEIGHTS_PATH = None
-
-
-def set_weights_path(path: str | None):
-    global _WEIGHTS_PATH
-    _WEIGHTS_PATH = path
-
-
 class OptimizationError(Exception):
     """SLSQP 优化失败。"""
+
+
+class EnsembleWeightsLoader:
+    """权重加载器(替代全局状态)。"""
+
+    def __init__(self, path: str | None = None):
+        self._path = path
+
+    def load(self, league_key: str, default=None) -> dict:
+        """加载该联赛学习到的权重。"""
+        import json
+        import os
+        
+        path = self._path
+        if path is None:
+            try:
+                from app.core.paths import ARTIFACTS_DIR as _AD
+                path = str(_AD / "ensemble" / "ensemble_weights.json")
+            except Exception:
+                path = None
+
+        if not path or not os.path.exists(path):
+            return (default or DEFAULT_WEIGHTS).to_flat()
+
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, UnicodeDecodeError, OSError) as e:
+            raise ValueError(f"ensemble_weights.json 损坏: {e}") from e
+
+        if not isinstance(data, dict):
+            raise TypeError(f"ensemble_weights.json 顶层应为 dict,实际 {type(data).__name__}")
+
+        if league_key in data:
+            entry = data[league_key]
+            if not isinstance(entry, dict):
+                raise TypeError(f"ensemble_weights[{league_key}] 应为 dict")
+            if "goal_lambda" in entry and "score_distribution" in entry:
+                return from_layered(entry)
+            return entry
+
+        return (default or DEFAULT_WEIGHTS).to_flat()
+
+
+# 向后兼容
+def set_weights_path(path: str | None):
+    """Deprecated: use EnsembleWeightsLoader directly."""
+    pass
+
+
+def load_weights(league_key: str, default=None) -> dict:
+    """Deprecated: use EnsembleWeightsLoader().load()."""
+    return EnsembleWeightsLoader().load(league_key, default)
 
 
 # ── P1-4: 拆分 Layer-1 / Layer-2 optimizer ──
@@ -464,34 +509,58 @@ def _prior_from_nll(_nll, candidates):
 
 
 def load_weights(league_key: str, default: EnsembleWeights | None = None) -> dict:
-    """加载该联赛学习到的权重(返回 flat 格式)。"""
+    """加载该联赛学习到的权重(返回 flat 格式)。
+    
+    优先从 ProductionArtifact 加载,legacy ensemble_weights.json 仅作 fallback。
+    """
     if default is None:
         default = DEFAULT_WEIGHTS
     
-    path = _WEIGHTS_PATH
-    if path is None:
-        try:
-            from app.core.paths import ARTIFACTS_DIR as _AD
-            path = os.path.join(str(_AD), "ensemble", "ensemble_weights.json")
-        except Exception:
-            path = None
+    # 优先: ProductionArtifact (league scoped)
+    try:
+        from app.core.paths import ARTIFACTS_DIR
+        artifact_path = os.path.join(str(ARTIFACTS_DIR), "ensemble", league_key, "production_artifact.json")
+        if os.path.exists(artifact_path):
+            with open(artifact_path, encoding="utf-8") as f:
+                data = json.load(f)
+            from app.services.training.ensemble.artifact import ProductionArtifact
+            artifact = ProductionArtifact.from_dict(data)
+            return {
+                "hgbr": artifact.goal_lambda.get("hgbr", 0.0),
+                "elo": artifact.goal_lambda.get("elo", 0.0),
+                "bayes": artifact.goal_lambda.get("bayes", 0.0),
+                "poisson": artifact.score_distribution.get("poisson", 0.0),
+                "dc": artifact.score_distribution.get("dc", 0.0),
+                "nb": artifact.score_distribution.get("nb", 0.0),
+                "shape": artifact.outcome.get("shape", 1.0),
+                "gbm": artifact.outcome.get("gbm", 0.0),
+            }
+    except Exception:
+        pass
+    
+    # Fallback: legacy ensemble_weights.json
+    try:
+        from app.core.paths import ARTIFACTS_DIR
+        path = os.path.join(str(ARTIFACTS_DIR), "ensemble", "ensemble_weights.json")
+    except Exception:
+        path = None
     
     if not path or not os.path.exists(path):
         return default.to_flat()
     
     try:
-        with open(path, encoding="utf-8") as _wf:
-            data = json.load(_wf)
-    except (json.JSONDecodeError, UnicodeDecodeError, OSError) as _e:
-        raise ValueError(f"ensemble_weights.json 损坏: {_e}") from _e
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError) as e:
+        raise ValueError(f"ensemble_weights.json 损坏: {e}") from e
     
     if not isinstance(data, dict):
-        raise TypeError(f"ensemble_weights.json 顶层应为 dict,实际 {type(data).__name__}")
+        raise TypeError(f"ensemble_weights.json 顶层应为 dict")
     
     if league_key in data:
         _entry = data[league_key]
         if not isinstance(_entry, dict):
-            raise TypeError(f"ensemble_weights[{league_key}] 应为 dict,实际 {type(_entry).__name__}")
+            raise TypeError(f"ensemble_weights[{league_key}] 应为 dict")
         if _is_layered(_entry):
             return from_layered(_entry)
         return _entry

@@ -408,7 +408,9 @@ class PoissonLossHGBR(BaseEstimator, RegressorMixin):
             return -np.mean(y_pred - y_true * np.log(y_pred))
 
         poisson_scorer = make_scorer(_neg_poisson_loss, greater_is_better=True)
-        scores = cross_val_score(self, X, y, cv=tscv, scoring=poisson_scorer)
+        # FIX: Create new instance to avoid state leak (self.model gets overwritten)
+        fresh_model = PoissonLossHGBR(**self.get_params())
+        scores = cross_val_score(fresh_model, X, y, cv=tscv, scoring=poisson_scorer)
 
         return {"cv_scores": scores, "cv_mean": -scores.mean(), "cv_std": scores.std()}
 

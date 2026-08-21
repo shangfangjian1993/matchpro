@@ -22,3 +22,6 @@ httpx>=0.27          # FastAPI TestClient
 ruff>=0.6            # lint
 pytest>=8.0          # 测试(最小集恢复中)
 shap>=0.52
+
+# Redis (PredictionCache 后端)
+redis>=5.0
