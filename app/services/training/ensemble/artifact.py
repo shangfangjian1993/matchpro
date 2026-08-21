@@ -69,20 +69,48 @@ class ProductionArtifact:
     lineage: LineageInfo = field(default_factory=LineageInfo)
     
     def __post_init__(self):
-        """验证权重合法性。"""
-        # Layer-1: sum = 1
-        gl_sum = sum(float(self.goal_lambda.get(k, 0)) for k in ["hgbr", "elo", "bayes"])
+        """P0-4: 验证权重合法性 (finite, 0<=w<=1, sum=1)。"""
+        import math
+        
+        # Layer-1: sum = 1, all finite and non-negative
+        gl_sum = 0.0
+        for k in ["hgbr", "elo", "bayes"]:
+            v = float(self.goal_lambda.get(k, 0))
+            if not math.isfinite(v):
+                raise ValueError(f"Layer-1 weight {k}={v} is not finite")
+            if v < 0 or v > 1:
+                raise ValueError(f"Layer-1 weight {k}={v} out of [0,1]")
+            gl_sum += v
         if abs(gl_sum - 1.0) > 0.01:
             raise ValueError(f"Layer-1 weights sum={gl_sum:.4f}, expected 1.0")
-        # Layer-2: sum = 1
-        sd_sum = sum(float(self.score_distribution.get(k, 0)) for k in ["poisson", "dc", "nb"])
+        
+        # Layer-2: sum = 1, all finite and non-negative
+        sd_sum = 0.0
+        for k in ["poisson", "dc", "nb"]:
+            v = float(self.score_distribution.get(k, 0))
+            if not math.isfinite(v):
+                raise ValueError(f"Layer-2 weight {k}={v} is not finite")
+            if v < 0 or v > 1:
+                raise ValueError(f"Layer-2 weight {k}={v} out of [0,1]")
+            sd_sum += v
         if abs(sd_sum - 1.0) > 0.01:
             raise ValueError(f"Layer-2 weights sum={sd_sum:.4f}, expected 1.0")
+        
         # Layer-3: valid simplex
         shape = float(self.outcome.get("shape", 0))
         gbm = float(self.outcome.get("gbm", 0))
+        if not math.isfinite(shape) or not math.isfinite(gbm):
+            raise ValueError(f"Layer-3 weights not finite: shape={shape}, gbm={gbm}")
+        if shape < 0 or shape > 1 or gbm < 0 or gbm > 1:
+            raise ValueError(f"Layer-3 weights out of [0,1]: shape={shape}, gbm={gbm}")
         if abs(shape + gbm - 1.0) > 0.01:
             raise ValueError(f"Layer-3 weights sum={shape + gbm:.4f}, expected 1.0")
+        
+        # Validate tau and phi
+        if not math.isfinite(self.tau):
+            raise ValueError(f"tau={self.tau} is not finite")
+        if not math.isfinite(self.phi) or self.phi <= 0:
+            raise ValueError(f"phi={self.phi} must be finite and > 0")
     
     def to_dict(self) -> dict:
         """序列化为 dict(P1-6: 全精度,无 round/renormalize)。"""

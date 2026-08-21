@@ -345,6 +345,10 @@ def learn_weights(
 ) -> dict:
     """兼容旧接口:调用拆分后的 optimizer。
     
+    .. deprecated:: 33cd2d2
+        使用 optimize_goal_lambda_weights() 和 optimize_score_distribution_weights() 代替。
+        此函数仅用于向后兼容。
+    
     自动检测输入格式:
     - OOF samples (含 att_diff, hgbr_lam_h/a): 调用 build_member_samples
     - Member samples (含 hgbr, poisson, dc, nb 等 1X2 概率): 直接使用
@@ -352,6 +356,12 @@ def learn_weights(
     Layer-1: Poisson Goal NLL (λ fusion)
     Layer-2: 1X2 LogLoss (score distribution)
     """
+    import warnings
+    warnings.warn(
+        "learn_weights() is deprecated. Use optimize_goal_lambda_weights() and optimize_score_distribution_weights() instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     # 检测输入格式
     is_oof_samples = len(samples) > 0 and "att_diff" in samples[0]
     

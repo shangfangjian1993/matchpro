@@ -95,7 +95,7 @@ def compute_tail_mass(matrix: np.ndarray, max_goals: int = 10) -> dict:
     }
 
 
-def compute_dc_calibration(matrix: np.ndarray) -> dict:
+def extract_dc_low_score_probs(matrix: np.ndarray) -> dict:
     """计算 DC 低比分校准指标 (opt-2)。
     
     返回 P(0-0), P(1-0), P(0-1), P(1-1) 的预测概率。
@@ -117,7 +117,7 @@ def compute_dc_calibration(matrix: np.ndarray) -> dict:
     }
 
 
-def compute_nb_tail_calibration(matrix: np.ndarray) -> dict:
+def extract_nb_tail_probs(matrix: np.ndarray) -> dict:
     """计算 NB 尾部校准指标 (opt-3)。
     
     返回 P(total>=4), P(total>=5) 的预测概率。

@@ -21,7 +21,7 @@ from app.api.db import League, Match, init_db
 from app.core.config import LeagueType
 from app.core.paths import MODELS_DIR
 from app.data.adapters import matches_to_dataframe
-from app.models.ensemble.matrix import compute_dc_calibration, compute_nb_tail_calibration, compute_tail_mass
+from app.models.ensemble.matrix import extract_dc_low_score_probs, extract_nb_tail_probs, compute_tail_mass
 from app.prediction.context import ContextBuilder
 from app.prediction.engine import PredictionEngine
 from app.prediction.layered_pipeline import ABLATION_MASKS, compute_prediction
@@ -170,13 +170,13 @@ def main():
                     tail = compute_tail_mass(mtx)
                     d["tail_mass"] += tail["tail_mass"]
                     # opt-2: DC low-score calibration
-                    dc_cal = compute_dc_calibration(mtx)
+                    dc_cal = extract_dc_low_score_probs(mtx)
                     d["dc_p00"] += dc_cal["p_00"]
                     d["dc_p10"] += dc_cal["p_10"]
                     d["dc_p01"] += dc_cal["p_01"]
                     d["dc_p11"] += dc_cal["p_11"]
                     # opt-3: NB tail calibration
-                    nb_cal = compute_nb_tail_calibration(mtx)
+                    nb_cal = extract_nb_tail_probs(mtx)
                     d["nb_pge4"] += nb_cal["p_total_ge4"]
                     d["nb_pge5"] += nb_cal["p_total_ge5"]
                 gh, ga = m.home_goals or 0, m.away_goals or 0

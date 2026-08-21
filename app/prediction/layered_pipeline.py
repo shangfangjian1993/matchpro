@@ -179,6 +179,7 @@ def compute_prediction(
                 diagnostics["prior"] = "applied"
             except Exception as e:
                 diagnostics["prior"] = f"fallback: {type(e).__name__}"
+                diagnostics["degraded"] = True
 
     # ── Layer 5: Calibration ──
     if calibration_context is not None and not ablation_mask.disable_calibration:
@@ -202,6 +203,7 @@ def compute_prediction(
             diagnostics["calibration"] = "applied"
         except Exception as e:
             diagnostics["calibration"] = f"fallback: {type(e).__name__}"
+            diagnostics["degraded"] = True
 
     return LayeredResult(
         fused_lambda=(fh, fa),

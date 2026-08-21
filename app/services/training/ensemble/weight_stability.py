@@ -20,6 +20,16 @@ class WeightStatistics:
     p50: float = 0.0
     p90: float = 0.0
     n: int = 0
+    
+    def to_dict(self) -> dict:
+        return {
+            "mean": round(self.mean, 6),
+            "std": round(self.std, 6),
+            "p10": round(self.p10, 6),
+            "p50": round(self.p50, 6),
+            "p90": round(self.p90, 6),
+            "n": self.n,
+        }
 
 
 @dataclass
@@ -44,9 +54,9 @@ class StabilityReport:
             "league": self.league,
             "n_folds": self.n_folds,
             "n_seasons": self.n_seasons,
-            "layer1": self.layer1.members if self.layer1 else {},
-            "layer2": self.layer2.members if self.layer2 else {},
-            "layer3": self.layer3.members if self.layer3 else {},
+            "layer1": {k: v.to_dict() for k, v in self.layer1.members.items()} if self.layer1 else {},
+            "layer2": {k: v.to_dict() for k, v in self.layer2.members.items()} if self.layer2 else {},
+            "layer3": {k: v.to_dict() for k, v in self.layer3.members.items()} if self.layer3 else {},
         }
 
 

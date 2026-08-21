@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from app.models.distributions import MAX_GOALS
-from app.models.ensemble.matrix import compute_tail_mass, compute_dc_calibration, compute_nb_tail_calibration
+from app.models.ensemble.matrix import compute_tail_mass, extract_dc_low_score_probs, extract_nb_tail_probs
 from app.prediction.layered_pipeline import compute_prediction
 
 
@@ -55,7 +55,7 @@ class TestScoreMetrics:
         )
         
         if result is not None:
-            dc_cal = compute_dc_calibration(result.score_matrix)
+            dc_cal = extract_dc_low_score_probs(result.score_matrix)
             assert "p_00" in dc_cal
             assert "p_10" in dc_cal
             assert "p_01" in dc_cal
@@ -75,7 +75,7 @@ class TestScoreMetrics:
         )
         
         if result is not None:
-            nb_cal = compute_nb_tail_calibration(result.score_matrix)
+            nb_cal = extract_nb_tail_probs(result.score_matrix)
             assert "p_total_ge4" in nb_cal
             assert "p_total_ge5" in nb_cal
             
