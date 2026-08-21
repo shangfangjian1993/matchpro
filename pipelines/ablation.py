@@ -21,6 +21,7 @@ from app.api.db import League, Match, init_db
 from app.core.config import LeagueType
 from app.core.paths import MODELS_DIR
 from app.data.adapters import matches_to_dataframe
+from app.models.ensemble.matrix import compute_dc_calibration, compute_nb_tail_calibration, compute_tail_mass
 from app.prediction.context import ContextBuilder
 from app.prediction.engine import PredictionEngine
 from app.prediction.layered_pipeline import ABLATION_MASKS, compute_prediction
@@ -109,7 +110,9 @@ def main():
     report = {
         s: {cc: {"n": 0, "ll": 0.0, "brier": 0.0, "rps": 0.0,
                 "pvecs": [], "acts": [], "xgm_h": 0.0, "xgm_a": 0.0,
-                "dc_low_score_n": 0, "nb_tail_n": 0, "total_goals": 0}
+                "dc_low_score_n": 0, "nb_tail_n": 0, "total_goals": 0,
+                "dc_p00": 0.0, "dc_p10": 0.0, "dc_p01": 0.0, "dc_p11": 0.0,
+                "nb_pge4": 0.0, "nb_pge5": 0.0, "tail_mass": 0.0}
             for cc in comps}
         for s in seasons
     }
@@ -156,7 +159,6 @@ def main():
                 d["rps"] += rps(pv, actual)
                 d["pvecs"].append(list(pv))
                 d["acts"].append(actual)
-                # P1-5: xG from component's own score_matrix
                 if score_matrix is not None:
                     mtx = np.asarray(score_matrix, dtype=float)
                     grid = np.arange(mtx.shape[0], dtype=float)
@@ -164,7 +166,19 @@ def main():
                     xa = float((mtx * grid[None, :]).sum())
                     d["xgm_h"] += abs(xh - (m.home_goals or 0))
                     d["xgm_a"] += abs(xa - (m.away_goals or 0))
-                # P1-6: DC/NB metrics from actual scores
+                    # opt-1: tail mass
+                    tail = compute_tail_mass(mtx)
+                    d["tail_mass"] += tail["tail_mass"]
+                    # opt-2: DC low-score calibration
+                    dc_cal = compute_dc_calibration(mtx)
+                    d["dc_p00"] += dc_cal["p_00"]
+                    d["dc_p10"] += dc_cal["p_10"]
+                    d["dc_p01"] += dc_cal["p_01"]
+                    d["dc_p11"] += dc_cal["p_11"]
+                    # opt-3: NB tail calibration
+                    nb_cal = compute_nb_tail_calibration(mtx)
+                    d["nb_pge4"] += nb_cal["p_total_ge4"]
+                    d["nb_pge5"] += nb_cal["p_total_ge5"]
                 gh, ga = m.home_goals or 0, m.away_goals or 0
                 if gh <= 1 and ga <= 1:
                     d["dc_low_score_n"] += 1
@@ -197,6 +211,16 @@ def main():
                 "dc_low_score_n": d["dc_low_score_n"],
                 "nb_tail_n": d["nb_tail_n"],
                 "avg_total_goals": round(d["total_goals"] / n, 3),
+                # opt-1: tail mass
+                "avg_tail_mass": round(d["tail_mass"] / n, 6),
+                # opt-2: DC low-score predicted probability
+                "dc_p00_pred": round(d["dc_p00"] / n, 4),
+                "dc_p10_pred": round(d["dc_p10"] / n, 4),
+                "dc_p01_pred": round(d["dc_p01"] / n, 4),
+                "dc_p11_pred": round(d["dc_p11"] / n, 4),
+                # opt-3: NB tail predicted probability
+                "nb_pge4_pred": round(d["nb_pge4"] / n, 4),
+                "nb_pge5_pred": round(d["nb_pge5"] / n, 4),
             }
         summary[s] = row
     payload = {
@@ -220,7 +244,8 @@ def main():
             print(
                 f"{s}  {cc:>2} n={r_['n']:>4} LL={r_['ll']:.4f} B={r_['brier']:.4f} "
                 f"RPS={r_['rps']:.4f} ECE={r_['ece']:.4f} xG_h={r_['xgm_h']:.3f} xG_a={r_['xgm_a']:.3f} "
-                f"dc_low={r_.get('dc_low_score_n',0)} nb_tail={r_.get('nb_tail_n',0)}"
+                f"dc_low={r_.get('dc_low_score_n',0)} nb_tail={r_.get('nb_tail_n',0)} "
+                f"tail={r_.get('avg_tail_mass',0):.4f}"
             )
     print("✅ 报告:", args.out)
 
