@@ -1,4 +1,4 @@
-"""权重配置与学习(Typed Schema)。
+"""权重配置与学习(Typed Schema + Split Optimizers)。
 
 Layer-1: Goal λ Ensemble (HGBR/ELO/Bayes)
 Layer-2: Score Distribution (Poisson/DC/NB,基于 fused λ)
@@ -6,10 +6,10 @@ Layer-3: Outcome (Shape + GBM)
 """
 from __future__ import annotations
 
+from dataclasses import dataclass, asdict
 import json
 import math
 import os
-from dataclasses import asdict, dataclass
 
 import numpy as np
 
@@ -105,18 +105,16 @@ DEFAULT_WEIGHTS = EnsembleWeights(
 
 
 def to_layered(data: dict) -> dict:
-    """转换为 layered 格式(幂等)。"""
+    """转换为分层格式(幂等)。"""
     if isinstance(data, EnsembleWeights):
         return data.to_dict()
     if "goal_lambda" in data and "score_distribution" in data and "outcome" in data:
-        # 已经是 layered
         return _normalize_layered(data)
-    # flat → layered
     return _flat_to_layered(data)
 
 
 def _flat_to_layered(flat: dict) -> dict:
-    """flat → layered。"""
+    """flat → layered(P1-6: 全精度,无 round/renormalize)。"""
     goal = {
         "hgbr": float(flat.get("hgbr", 0.0)),
         "elo": float(flat.get("elo", 0.0)),
@@ -124,24 +122,22 @@ def _flat_to_layered(flat: dict) -> dict:
     }
     gsum = sum(goal.values()) or 1.0
     
-    # P0-3 FIX: 保存 poisson 权重(不推导)
     sd = {
-        "poisson": float(flat.get("poisson", gsum)),  # 使用实际 poisson 权重
+        "poisson": float(flat.get("poisson", gsum)),
         "dc": float(flat.get("dc", 0.0)),
         "nb": float(flat.get("nb", 0.0)),
     }
     ssum = sum(sd.values()) or 1.0
     
-    # P0-6 FIX: 保存 shape + gbm
     outcome = {
         "shape": float(flat.get("shape_weight", 1.0)),
         "gbm": float(flat.get("gbm_weight", flat.get("gbm", 0.0))),
     }
     
     return {
-        "goal_lambda": {k: round(v / gsum, 4) for k, v in goal.items()},
-        "score_distribution": {k: round(v / ssum, 4) for k, v in sd.items()},
-        "outcome": {k: round(v, 4) for k, v in outcome.items()},
+        "goal_lambda": {k: v / gsum for k, v in goal.items()},
+        "score_distribution": {k: v / ssum for k, v in sd.items()},
+        "outcome": outcome,
     }
 
 
@@ -153,9 +149,9 @@ def _normalize_layered(layered: dict) -> dict:
     ssum = sum(float(sd.get(k, 0.0)) for k in ["poisson", "dc", "nb"]) or 1.0
     outcome = layered.get("outcome", {})
     return {
-        "goal_lambda": {k: round(float(goal.get(k, 0.0)) / gsum, 4) for k in ["hgbr", "elo", "bayes"]},
-        "score_distribution": {k: round(float(sd.get(k, 0.0)) / ssum, 4) for k in ["poisson", "dc", "nb"]},
-        "outcome": {"shape": round(float(outcome.get("shape", 1.0)), 4), "gbm": round(float(outcome.get("gbm", 0.0)), 4)},
+        "goal_lambda": {k: float(goal.get(k, 0.0)) / gsum for k in ["hgbr", "elo", "bayes"]},
+        "score_distribution": {k: float(sd.get(k, 0.0)) / ssum for k in ["poisson", "dc", "nb"]},
+        "outcome": {"shape": float(outcome.get("shape", 1.0)), "gbm": float(outcome.get("gbm", 0.0))},
     }
 
 
@@ -190,100 +186,91 @@ def set_weights_path(path: str | None):
 
 class OptimizationError(Exception):
     """SLSQP 优化失败。"""
+    pass
 
 
-def learn_weights(
+# ── P1-4: 拆分 Layer-1 / Layer-2 optimizer ──
+
+def optimize_goal_lambda_weights(
     samples: list[dict],
-    tau: float = 0.0,
-    phi: float = 1e9,
     shrinkage: float = 0.15,
     prior: dict | None = None,
     max_weight: float = 0.7,
 ) -> dict:
-    """分层权重学习:L-1(λ fusion) + L-2(shape) 分别优化。"""
-    _candidates_gl = ["hgbr", "elo", "bayes"]
-    _candidates_sd = ["poisson", "dc", "nb"]
+    """Layer-1: 使用 Poisson Goal NLL 优化 λ 权重。
     
-    _present_gl = [n for n in _candidates_gl if any(n in sample for sample in samples)]
-    _present_sd = [n for n in _candidates_sd if any(n in sample for sample in samples)]
+    输入: samples 中包含 hgbr_lam_h/a, elo_lam_h/a, bayes_lam_h/a
+    输出: {hgbr, elo, bayes, poisson, dc, nb} (后三个为0)
+    """
+    candidates = ["hgbr", "elo", "bayes"]
+    present = [n for n in candidates if any(f"{n}_lam_h" in s for s in samples)]
+    
+    if not present:
+        return {name: 1.0 if name == "hgbr" else 0.0 for name in ["hgbr", "elo", "bayes", "poisson", "dc", "nb"]}
     
     n = max(1, len(samples))
     
-    # Layer-1: Goal λ 权重(使用 Poisson NLL)
-    w_gl = _optimize_layer_weights_poisson(samples, _present_gl, shrinkage, max_weight, n, prior)
-    
-    # Layer-2: Score Distribution 权重(使用 1X2 LogLoss)
-    w_sd = _optimize_layer_weights_1x2(samples, _present_sd, shrinkage, max_weight, n, prior)
-    
-    # P0-3 FIX: 保存 poisson/dc/nb 三个 learned weights
-    out = {
-        "hgbr": w_gl.get("hgbr", 0.0),
-        "elo": w_gl.get("elo", 0.0),
-        "bayes": w_gl.get("bayes", 0.0),
-        "poisson": w_sd.get("poisson", 0.0),
-        "dc": w_sd.get("dc", 0.0),
-        "nb": w_sd.get("nb", 0.0),
-        "gbm": 0.0,
-        "log_loss": w_sd.get("log_loss", 0.0),
-        "n": n,
-        "shrinkage": shrinkage,
-    }
-    return out
-
-
-def _optimize_layer_weights_poisson(samples, candidates, shrinkage, max_weight, n, prior):
-    """Layer-1: 使用 Poisson Goal NLL 优化 λ 权重。"""
-    all_names = ["hgbr", "elo", "bayes", "poisson", "dc", "nb"]
-    if not candidates:
-        return {name: 1.0 if name == "hgbr" else 0.0 for name in all_names}
-    
     if prior is None:
-        _prior = _compute_baseline_prior_poisson(samples, candidates, n)
+        _prior = _compute_baseline_prior_poisson(samples, present, n)
     else:
-        _prior = np.array([prior.get(name, 0.0) for name in candidates], dtype=float)
-        _prior = _prior / _prior.sum() if _prior.sum() > 0 else np.ones(len(candidates)) / len(candidates)
+        _prior = np.array([prior.get(name, 0.0) for name in present], dtype=float)
+        _prior = _prior / _prior.sum() if _prior.sum() > 0 else np.ones(len(present)) / len(present)
     
-    if len(candidates) < 2:
-        return {name: (1.0 if name == candidates[0] else 0.0) for name in all_names}
+    if len(present) < 2:
+        return {name: (1.0 if name == present[0] else 0.0) for name in ["hgbr", "elo", "bayes", "poisson", "dc", "nb"]}
     
     def _nll(w):
         ll = 0.0
         for s in samples:
-            lam_h = sum(w[i] * s.get(f"{name}_lam_h", 1.5) for i, name in enumerate(candidates))
-            lam_a = sum(w[i] * s.get(f"{name}_lam_a", 1.2) for i, name in enumerate(candidates))
+            lam_h = sum(w[i] * s.get(f"{name}_lam_h", 1.5) for i, name in enumerate(present))
+            lam_a = sum(w[i] * s.get(f"{name}_lam_a", 1.2) for i, name in enumerate(present))
             from math import lgamma, log
             gh = int(s.get("home_goals", 0))
             ga = int(s.get("away_goals", 0))
             ll -= (gh * log(max(lam_h, 1e-12)) - lam_h - lgamma(gh + 1))
             ll -= (ga * log(max(lam_a, 1e-12)) - lam_a - lgamma(ga + 1))
         ll = ll / n
-        if shrinkage > 0 and len(candidates) > 1:
+        if shrinkage > 0 and len(present) > 1:
             ll += shrinkage * float(np.mean((w - _prior) ** 2))
         return ll
     
-    return _run_slsqp(_nll, _prior, candidates, max_weight, all_names, n, "Layer-1")
+    return _run_slsqp(_nll, _prior, present, max_weight, 
+                       ["hgbr", "elo", "bayes", "poisson", "dc", "nb"], n, "Layer-1")
 
 
-def _optimize_layer_weights_1x2(samples, candidates, shrinkage, max_weight, n, prior):
-    """Layer-2: 使用 1X2 LogLoss 优化 shape 权重。"""
-    all_names = ["hgbr", "elo", "bayes", "poisson", "dc", "nb"]
-    if not candidates:
-        return {name: 1.0 if name == "poisson" else 0.0 for name in all_names}
+def optimize_score_distribution_weights(
+    samples: list[dict],
+    shrinkage: float = 0.15,
+    prior: dict | None = None,
+    max_weight: float = 0.7,
+) -> dict:
+    """Layer-2: 使用 1X2 LogLoss 优化 score distribution 权重。
+    
+    输入: samples 中包含 poisson, dc, nb (基于 fused λ 的 1X2 概率)
+    输出: {hgbr, elo, bayes, poisson, dc, nb} (前三个为0)
+    """
+    candidates = ["poisson", "dc", "nb"]
+    present = [n for n in candidates if any(n in s for s in samples)]
+    
+    if not present:
+        return {name: 1.0 if name == "poisson" else 0.0 for name in ["hgbr", "elo", "bayes", "poisson", "dc", "nb"]}
+    
+    n = max(1, len(samples))
     
     if prior is None:
-        _prior = _compute_baseline_prior_1x2(samples, candidates, n)
+        _prior = _compute_baseline_prior_1x2(samples, present, n)
     else:
-        _prior = np.array([prior.get(name, 0.0) for name in candidates], dtype=float)
-        _prior = _prior / _prior.sum() if _prior.sum() > 0 else np.ones(len(candidates)) / len(candidates)
+        _prior = np.array([prior.get(name, 0.0) for name in present], dtype=float)
+        _prior = _prior / _prior.sum() if _prior.sum() > 0 else np.ones(len(present)) / len(present)
     
-    if len(candidates) < 2:
-        return {name: (1.0 if name == candidates[0] else 0.0) for name in all_names}
+    if len(present) < 2:
+        return {name: (1.0 if name == present[0] else 0.0) for name in ["hgbr", "elo", "bayes", "poisson", "dc", "nb"]}
     
     def _nll(w):
         ll = 0.0
         for s in samples:
             p = np.zeros(3)
-            for i, name in enumerate(candidates):
+            for i, name in enumerate(present):
                 if name not in s:
                     continue
                 p += w[i] * np.asarray(s[name])
@@ -291,19 +278,20 @@ def _optimize_layer_weights_1x2(samples, candidates, shrinkage, max_weight, n, p
             p = p / p.sum()
             ll -= math.log(p[s["actual"]])
         ll = ll / n
-        if shrinkage > 0 and len(candidates) > 1:
+        if shrinkage > 0 and len(present) > 1:
             ll += shrinkage * float(np.mean((w - _prior) ** 2))
         return ll
     
-    return _run_slsqp(_nll, _prior, candidates, max_weight, all_names, n, "Layer-2")
+    return _run_slsqp(_nll, _prior, present, max_weight,
+                       ["hgbr", "elo", "bayes", "poisson", "dc", "nb"], n, "Layer-2")
 
 
 def _run_slsqp(objective, prior, candidates, max_weight, all_names, n, layer_name):
-    """运行 SLSQP 优化,检查 success。"""
+    """运行 SLSQP 优化(P1-5: bounded-simplex 初始化)。"""
     from scipy.optimize import minimize
-    w0 = np.asarray(prior, dtype=float).copy()
-    w0 = np.clip(w0, 0.0, max_weight)
-    w0 = w0 / w0.sum() if w0.sum() > 0 else np.full(len(candidates), 1.0 / len(candidates))
+    
+    # P1-5 FIX: 投影到合法初始点
+    w0 = _project_to_bounded_simplex(prior, max_weight)
     
     res = minimize(
         objective, w0, method="SLSQP",
@@ -325,6 +313,81 @@ def _run_slsqp(objective, prior, candidates, max_weight, all_names, n, layer_nam
     out["slsqp_success"] = res.success
     out["slsqp_message"] = res.message
     return out
+
+
+def _project_to_bounded_simplex(prior, max_weight):
+    """投影到 bounded simplex: Σw=1, 0≤w≤max_weight。
+    
+    P1-5 FIX: 确保初始点合法。
+    """
+    w = np.asarray(prior, dtype=float).copy()
+    w = np.clip(w, 0.0, max_weight)
+    wsum = w.sum()
+    if wsum > 0:
+        w = w / wsum
+    else:
+        w = np.full_like(w, 1.0 / len(w))
+    # 再次 clip 确保 ≤ max_weight
+    w = np.clip(w, 0.0, max_weight)
+    wsum = w.sum()
+    if wsum > 0:
+        w = w / wsum
+    return w
+
+
+def learn_weights(
+    samples: list[dict],
+    tau: float = 0.0,
+    phi: float = 1e9,
+    shrinkage: float = 0.15,
+    prior: dict | None = None,
+    max_weight: float = 0.7,
+) -> dict:
+    """兼容旧接口:调用拆分后的 optimizer。
+    
+    自动检测输入格式:
+    - OOF samples (含 att_diff, hgbr_lam_h/a): 调用 build_member_samples
+    - Member samples (含 hgbr, poisson, dc, nb 等 1X2 概率): 直接使用
+    
+    Layer-1: Poisson Goal NLL (λ fusion)
+    Layer-2: 1X2 LogLoss (score distribution)
+    """
+    # 检测输入格式
+    is_oof_samples = len(samples) > 0 and "att_diff" in samples[0]
+    
+    if is_oof_samples:
+        # OOF samples → 需要 build_member_samples
+        try:
+            from app.services.training.ensemble.member_builder import build_member_samples
+        except ImportError:
+            def build_member_samples(samps, tau, phi, weights=None):
+                return samps
+        
+        samples_stage1 = build_member_samples(samples, tau=0.0, phi=1e9)
+        w_layer1 = optimize_goal_lambda_weights(samples_stage1, shrinkage=shrinkage, prior=prior, max_weight=max_weight)
+        
+        samples_stage2 = build_member_samples(samples, tau, phi, weights=w_layer1)
+        w_layer2 = optimize_score_distribution_weights(samples_stage2, shrinkage=shrinkage, prior=prior, max_weight=max_weight)
+    else:
+        # 已经是 member samples (含 hgbr, poisson, dc, nb 等)
+        # 直接用于 Layer-2 优化
+        w_layer2 = optimize_score_distribution_weights(samples, shrinkage=shrinkage, prior=prior, max_weight=max_weight)
+        
+        # Layer-1 使用默认权重(因为没有 λ 值)
+        w_layer1 = {"hgbr": 1.0, "elo": 0.0, "bayes": 0.0, "poisson": 0.0, "dc": 0.0, "nb": 0.0}
+    
+    return {
+        "hgbr": w_layer1.get("hgbr", 0.0),
+        "elo": w_layer1.get("elo", 0.0),
+        "bayes": w_layer1.get("bayes", 0.0),
+        "poisson": w_layer2.get("poisson", 0.0),
+        "dc": w_layer2.get("dc", 0.0),
+        "nb": w_layer2.get("nb", 0.0),
+        "gbm": 0.0,
+        "log_loss": w_layer2.get("log_loss", 0.0),
+        "n": len(samples),
+        "shrinkage": shrinkage,
+    }
 
 
 def _compute_baseline_prior_poisson(samples, candidates, n):

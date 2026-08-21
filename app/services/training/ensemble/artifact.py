@@ -20,8 +20,7 @@ class CalibrationArtifact:
     temporal_oof: bool
     val_ece: float
     test_ece: Optional[float] = None
-    # P0-4: 保存真实 learned parameters
-    params: dict = field(default_factory=dict)  # {a, b} for Platt, {a, b, c} for Beta, etc.
+    params: dict = field(default_factory=dict)  # learned parameters
 
 
 @dataclass(frozen=True)
@@ -33,30 +32,39 @@ class PriorArtifact:
 
 
 @dataclass(frozen=True)
+class GbmArtifact:
+    """GBM 子-artifact(包含模型引用)。"""
+    model_path: str  # 相对路径
+    model_hash: str  # SHA256 of model file
+    feature_columns: list = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class LineageInfo:
     """Artifact 血统信息。"""
     artifact_version: str = "ensemble-v3"
     schema_version: int = 1
     model_version: str = ""
     feature_version: str = ""
-    training_cutoff: str = ""  # ISO date (真实数据截止时间)
+    training_cutoff: str = ""
     oof_method: str = "expanding-window"
     oof_segments: int = 6
     oof_n: int = 0
     shrinkage: float = 0.15
-    created_at: str = ""  # Artifact 创建时间
+    created_at: str = ""
     training_data_hash: str = ""
     calibration_hash: str = ""
     prior_hash: str = ""
+    gbm_hash: str = ""
 
 
 @dataclass(frozen=True)
 class ProductionArtifact:
-    """生产模型完整 artifact(唯一输入)。
+    """生产模型完整 artifact(唯一输入)。"""
+    # P0-4: 增加 league 字段
+    league: str  # "premier_league", "la_liga", etc.
     
-    P0-3: 使用 typed schema (EnsembleWeights),而非 dict。
-    """
-    # Ensemble weights (typed)
+    # Ensemble weights (typed - P0-2)
     goal_lambda: dict  # {hgbr, elo, bayes}
     score_distribution: dict  # {poisson, dc, nb}
     outcome: dict  # {shape, gbm}
@@ -65,19 +73,26 @@ class ProductionArtifact:
     tau: float
     phi: float
     
+    # P0-3: GBM learned state
+    gbm_model_path: str = ""
+    gbm_model_hash: str = ""
+    
     # Sub-artifacts
     calibration: Optional[CalibrationArtifact] = None
     prior: Optional[PriorArtifact] = None
     lineage: LineageInfo = field(default_factory=LineageInfo)
     
     def to_dict(self) -> dict:
-        """序列化为 dict。"""
+        """序列化为 dict(P1-6: 全精度,无 round/renormalize)。"""
         return {
-            "goal_lambda": self.goal_lambda,
-            "score_distribution": self.score_distribution,
-            "outcome": self.outcome,
-            "tau": self.tau,
-            "phi": self.phi,
+            "league": self.league,
+            "goal_lambda": {k: float(v) for k, v in self.goal_lambda.items()},
+            "score_distribution": {k: float(v) for k, v in self.score_distribution.items()},
+            "outcome": {k: float(v) for k, v in self.outcome.items()},
+            "tau": float(self.tau),
+            "phi": float(self.phi),
+            "gbm_model_path": self.gbm_model_path,
+            "gbm_model_hash": self.gbm_model_hash,
             "calibration": self.calibration.__dict__ if self.calibration else None,
             "prior": self.prior.__dict__ if self.prior else None,
             "lineage": self.lineage.__dict__,
@@ -89,10 +104,7 @@ class ProductionArtifact:
     
     @classmethod
     def from_dict(cls, data: dict) -> ProductionArtifact:
-        """从 dict 反序列化。
-        
-        P0-2 FIX: 正确恢复 calibration 和 prior。
-        """
+        """从 dict 反序列化。"""
         cal = None
         if data.get("calibration"):
             cal = CalibrationArtifact(**data["calibration"])
@@ -101,13 +113,16 @@ class ProductionArtifact:
             prior = PriorArtifact(**data["prior"])
         lineage = LineageInfo(**data.get("lineage", {}))
         return cls(
+            league=data.get("league", ""),
             goal_lambda=data["goal_lambda"],
             score_distribution=data["score_distribution"],
             outcome=data["outcome"],
             tau=data["tau"],
             phi=data["phi"],
-            calibration=cal,  # P0-2 FIX: 传入 calibration
-            prior=prior,       # P0-2 FIX: 传入 prior
+            gbm_model_path=data.get("gbm_model_path", ""),
+            gbm_model_hash=data.get("gbm_model_hash", ""),
+            calibration=cal,
+            prior=prior,
             lineage=lineage,
         )
     
@@ -117,16 +132,15 @@ class ProductionArtifact:
         return cls.from_dict(json.loads(json_str))
     
     def model_hash(self) -> str:
-        """模型内容哈希(不含 created_at,用于判断模型数学内容是否一致)。
-        
-        P1-6 FIX: 与 created_at 解耦。
-        """
+        """模型内容哈希(不含 created_at)。"""
         content = json.dumps({
+            "league": self.league,
             "goal_lambda": self.goal_lambda,
             "score_distribution": self.score_distribution,
             "outcome": self.outcome,
             "tau": self.tau,
             "phi": self.phi,
+            "gbm_model_hash": self.gbm_model_hash,
             "calibration": self.calibration.__dict__ if self.calibration else None,
             "prior": self.prior.__dict__ if self.prior else None,
             "training_cutoff": self.lineage.training_cutoff,
@@ -142,6 +156,7 @@ class ProductionArtifact:
 
 
 def create_production_artifact(
+    league: str,  # P0-4: 必须传入 league
     weights: dict,
     tau: float,
     phi: float,
@@ -149,37 +164,39 @@ def create_production_artifact(
     feature_version: str = "",
     oof_n: int = 0,
     shrinkage: float = 0.15,
-    training_cutoff: str = "",  # P1-5: 真实数据截止时间
+    training_cutoff: str = "",
+    gbm_model_path: str = "",
+    gbm_model_hash: str = "",
     calibration: Optional[CalibrationArtifact] = None,
     prior: Optional[PriorArtifact] = None,
 ) -> ProductionArtifact:
-    """从训练输出创建 ProductionArtifact。
-    
-    P1-5 FIX: training_cutoff 由调用方传入,不使用 datetime.now()。
-    """
+    """从训练输出创建 ProductionArtifact。"""
     return ProductionArtifact(
+        league=league,  # P0-4
         goal_lambda={
-            "hgbr": weights.get("hgbr", 0.5),
-            "elo": weights.get("elo", 0.3),
-            "bayes": weights.get("bayes", 0.2),
+            "hgbr": float(weights.get("hgbr", 0.5)),
+            "elo": float(weights.get("elo", 0.3)),
+            "bayes": float(weights.get("bayes", 0.2)),
         },
         score_distribution={
-            "poisson": weights.get("poisson", 0.5),
-            "dc": weights.get("dc", 0.3),
-            "nb": weights.get("nb", 0.2),
+            "poisson": float(weights.get("poisson", 0.5)),
+            "dc": float(weights.get("dc", 0.3)),
+            "nb": float(weights.get("nb", 0.2)),
         },
         outcome={
-            "shape": weights.get("shape_weight", 1.0),
-            "gbm": weights.get("gbm_weight", 0.0),
+            "shape": float(weights.get("shape_weight", 1.0)),
+            "gbm": float(weights.get("gbm_weight", 0.0)),
         },
-        tau=tau,
-        phi=phi,
+        tau=float(tau),
+        phi=float(phi),
+        gbm_model_path=gbm_model_path,
+        gbm_model_hash=gbm_model_hash,
         calibration=calibration,
         prior=prior,
         lineage=LineageInfo(
             model_version=model_version,
             feature_version=feature_version,
-            training_cutoff=training_cutoff,  # P1-5: 使用传入的真实 cutoff
+            training_cutoff=training_cutoff,
             oof_segments=6,
             oof_n=oof_n,
             shrinkage=shrinkage,

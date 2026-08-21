@@ -43,6 +43,7 @@ class TestRoundtripParity:
     def test_production_artifact_roundtrip(self):
         """ProductionArtifact JSON round-trip。"""
         artifact = create_production_artifact(
+            league="premier_league",
             weights={
                 "hgbr": 0.52, "elo": 0.29, "bayes": 0.19,
                 "poisson": 0.48, "dc": 0.32, "nb": 0.20,
@@ -57,6 +58,7 @@ class TestRoundtripParity:
         json_str = artifact.to_json()
         restored = ProductionArtifact.from_json(json_str)
         
+        assert restored.league == artifact.league
         assert restored.tau == artifact.tau
         assert restored.phi == artifact.phi
         assert restored.goal_lambda == artifact.goal_lambda
@@ -110,6 +112,7 @@ class TestArtifactIntegrity:
     def test_content_hash_stable(self):
         """相同内容 → 相同 hash。"""
         artifact = create_production_artifact(
+            league="premier_league",
             weights={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape_weight": 0.7, "gbm_weight": 0.3},
             tau=0.05, phi=50.0,
         )
@@ -119,10 +122,12 @@ class TestArtifactIntegrity:
     def test_content_hash_changes_with_weights(self):
         """权重变化 → hash 变化。"""
         a1 = create_production_artifact(
+            league="premier_league",
             weights={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape_weight": 0.7, "gbm_weight": 0.3},
             tau=0.05, phi=50.0,
         )
         a2 = create_production_artifact(
+            league="premier_league",
             weights={"hgbr": 0.6, "elo": 0.3, "bayes": 0.1, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape_weight": 0.7, "gbm_weight": 0.3},
             tau=0.05, phi=50.0,
         )
@@ -132,10 +137,12 @@ class TestArtifactIntegrity:
     def test_model_hash_excludes_created_at(self):
         """P1-6: model_hash 不包含 created_at。"""
         a1 = create_production_artifact(
+            league="premier_league",
             weights={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape_weight": 0.7, "gbm_weight": 0.3},
             tau=0.05, phi=50.0,
         )
         a2 = create_production_artifact(
+            league="premier_league",
             weights={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape_weight": 0.7, "gbm_weight": 0.3},
             tau=0.05, phi=50.0,
         )
@@ -162,6 +169,7 @@ class TestCalibrationPriorRoundtrip:
         )
         
         artifact = ProductionArtifact(
+            league="premier_league",
             goal_lambda={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2},
             score_distribution={"poisson": 0.5, "dc": 0.3, "nb": 0.2},
             outcome={"shape": 0.7, "gbm": 0.3},
@@ -187,6 +195,7 @@ class TestCalibrationPriorRoundtrip:
         )
         
         artifact = ProductionArtifact(
+            league="premier_league",
             goal_lambda={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2},
             score_distribution={"poisson": 0.5, "dc": 0.3, "nb": 0.2},
             outcome={"shape": 0.7, "gbm": 0.3},
