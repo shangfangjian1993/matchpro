@@ -1,4 +1,4 @@
-"""分层权重优化入口(严格DAG顺序)。
+"""分层权重优化入口(严格DAG顺序 + EnsembleTrainingResult)。
 
 Stage 1: OOF λ → Layer-1 weights → fused λ
 Stage 2: fused λ → fit τ/φ → Layer-2 weights
@@ -6,12 +6,21 @@ Stage 3: shape + GBM → Layer-3 weights
 """
 from __future__ import annotations
 
-import warnings
+from dataclasses import dataclass
 
-from . import EnsembleTrainingConfig, DEFAULT_CONFIG
+from .optimizers import DEFAULT_CONFIG, EnsembleTrainingConfig
 from .optimizers.dc_parameter import fit_tau
 from .optimizers.nb_parameter import fit_phi
 from .optimizers.outcome_optimizer import optimize_outcome_weights
+
+
+@dataclass(frozen=True)
+class EnsembleTrainingResult:
+    """训练结果(不可变,替代tuple返回)。"""
+    tau: float
+    phi: float
+    weights: dict
+    metadata: dict
 
 
 def optimize(
@@ -19,7 +28,7 @@ def optimize(
     tau: float | None = None,
     phi: float | None = None,
     config: EnsembleTrainingConfig | None = None,
-) -> tuple[float, float, dict]:
+) -> EnsembleTrainingResult:
     """分层权重学习(严格DAG)。
     
     Stage 1: Layer-1 λ weights (Poisson Goal NLL)
@@ -30,28 +39,46 @@ def optimize(
         config = DEFAULT_CONFIG
     
     from app.models.ensemble import learn_weights
+
     from .member_builder import build_member_samples
     
-    # Stage 1: Layer-1 λ weights
-    # (τ/φ 使用默认值,因为 Layer-1 不依赖它们)
+    # Stage 1: Layer-1 λ weights (Poisson Goal NLL)
     samples_stage1 = build_member_samples(oof_samples, tau=0.0, phi=1e9)
     w_layer1 = learn_weights(samples_stage1, tau=0.0, phi=1e9, shrinkage=config.shrinkage)
     
-    # Stage 2: τ/φ on fused λ
+    # Stage 2: τ/φ on fused λ (使用 learned w_layer1)
     if tau is None:
-        # 使用 preliminary weights 计算 fused λ
         tau = fit_tau(samples_stage1, config=config, use_fused_lambda=True)
     if phi is None:
         phi = fit_phi(samples_stage1, config=config)
     
-    # Stage 3: Layer-2 shape weights (使用拟合后的 τ/φ)
-    samples_stage2 = build_member_samples(oof_samples, tau, phi)
+    # P0-2 FIX: 传入 w_layer1,使 fused λ 使用 learned weights
+    samples_stage2 = build_member_samples(oof_samples, tau, phi, weights=w_layer1)
     w_layer2 = learn_weights(samples_stage2, tau, phi, shrinkage=config.shrinkage)
     
-    # Stage 4: Layer-3 outcome weights
-    shape_probs = [s.get("shape_1x2", s.get("poisson", [0.33, 0.34, 0.33])) for s in samples_stage2]
-    gbm_probs_list = [s.get("gbm") for s in samples_stage2 if "gbm" in s]
-    actuals = [s["actual"] for s in samples_stage2]
+    # P0-4 FIX: Stage-3 GBM 使用 learned shape weights 构建 shape_1x2
+    shape_probs = []
+    gbm_probs_list = []
+    actuals = []
+    for s in samples_stage2:
+        if "gbm" in s:
+            # 使用 learned weights 计算 shape_1x2
+            p_pois = s.get("poisson", [0.33, 0.34, 0.33])
+            p_dc = s.get("dc", [0.33, 0.34, 0.33])
+            p_nb = s.get("nb", [0.33, 0.34, 0.33])
+            # 使用 learned Layer-2 weights
+            wp = w_layer2.get("poisson", 0.33)
+            wd = w_layer2.get("dc", 0.33)
+            wn = w_layer2.get("nb", 0.33)
+            wsum = wp + wd + wn or 1.0
+            shape_1x2 = [
+                (wp * p_pois[0] + wd * p_dc[0] + wn * p_nb[0]) / wsum,
+                (wp * p_pois[1] + wd * p_dc[1] + wn * p_nb[1]) / wsum,
+                (wp * p_pois[2] + wd * p_dc[2] + wn * p_nb[2]) / wsum,
+            ]
+            shape_probs.append(shape_1x2)
+            gbm_probs_list.append(s["gbm"])
+            actuals.append(s["actual"])
     
     if gbm_probs_list and len(gbm_probs_list) == len(actuals):
         shape_weight, gbm_weight = optimize_outcome_weights(
@@ -60,11 +87,12 @@ def optimize(
     else:
         shape_weight, gbm_weight = 1.0, 0.0
     
-    # 组合为 flat 格式(兼容旧接口)
+    # P0-3 FIX: Layer-2 保存 poisson/dc/nb 三个 learned weights
     out = {
         "hgbr": w_layer1.get("hgbr", 0.0),
         "elo": w_layer1.get("elo", 0.0),
         "bayes": w_layer1.get("bayes", 0.0),
+        "poisson": w_layer2.get("poisson", 0.0),  # P0-3 FIX: 保存 poisson
         "dc": w_layer2.get("dc", 0.0),
         "nb": w_layer2.get("nb", 0.0),
         "gbm": gbm_weight,
@@ -76,4 +104,13 @@ def optimize(
         "shape_weight": shape_weight,
         "gbm_weight": gbm_weight,
     }
-    return tau, phi, out
+    
+    metadata = {
+        "tau": tau,
+        "phi": phi,
+        "shape_weight": shape_weight,
+        "gbm_weight": gbm_weight,
+        "config": config.to_dict(),
+    }
+    
+    return EnsembleTrainingResult(tau=tau, phi=phi, weights=out, metadata=metadata)

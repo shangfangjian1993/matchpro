@@ -30,7 +30,7 @@ def fit_phi(samples: list[dict], config: EnsembleTrainingConfig | None = None) -
     if var <= mean or mean <= 0:
         return 1e9  # 无过离散
     
-    phi = mean / (var - mean)
+    phi = mean**2 / (var - mean)
     
     # Bounds check
     phi = max(config.phi_min, min(config.phi_max, phi))

@@ -1,8 +1,9 @@
 """Dixon-Coles τ 参数拟合。"""
 from __future__ import annotations
 
-import numpy as np
 import warnings
+
+import numpy as np
 
 from . import EnsembleTrainingConfig
 

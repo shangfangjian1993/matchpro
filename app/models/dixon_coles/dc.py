@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import math
-
 import numpy as np
 
 from app.models.distributions import pois_pmf as _pois_pmf
@@ -44,20 +42,6 @@ def dc_probs(
 
 
 def fit_dc_tau(samples: list[dict]) -> float:
-    """τ 最大似然拟合(低比分格点搜索);无显著信号时 ≈0。"""
-    best_t, best_ll = 0.0, float("inf")
-    for t in np.arange(-0.2, 0.201, 0.01):
-        ll = 0.0
-        for s in samples:
-            x, y = s["home_goals"], s["away_goals"]
-            if x > 1 or y > 1:
-                continue
-            p = (
-                _dc_tau(x, y, s["hgbr_lam_h"], s["hgbr_lam_a"], t)
-                * _pois_pmf(s["hgbr_lam_h"], x)
-                * _pois_pmf(s["hgbr_lam_a"], y)
-            )
-            ll += math.log(max(1e-12, p))
-        if ll < best_ll:
-            best_t, best_ll = t, ll
-    return float(best_t)
+    """τ 最大似然拟合(委托给新实现)。"""
+    from app.services.training.ensemble.optimizers.dc_parameter import fit_tau
+    return fit_tau(samples)

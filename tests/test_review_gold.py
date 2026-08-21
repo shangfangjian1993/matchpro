@@ -216,33 +216,29 @@ def test_prediction_determinism():
 
 # ── 三十:权重学习动态成员(GBM 不可用 → 从优化中移除,非 [0,0,0])────────────
 def test_learn_weights_removes_missing_member():
-    """样本缺 gbm → 权重学习中 gbm=0 且其余成员归一化。"""
+    """样本缺 gbm → 权重学习中 gbm=0 且各层内归一化。"""
     from app.models.ensemble import learn_weights
 
+    # Layer-1 samples (with λ values)
     samples = [
         {
+            "hgbr_lam_h": 1.5, "hgbr_lam_a": 1.2,
+            "elo_lam_h": 1.4, "elo_lam_a": 1.1,
+            "bayes_lam_h": 1.3, "bayes_lam_a": 1.2,
             "hgbr": [0.5, 0.3, 0.2],
             "dc": [0.4, 0.3, 0.3],
             "elo": [0.6, 0.2, 0.2],
-            "actual": 0,
-        },
-        {
-            "hgbr": [0.2, 0.3, 0.5],
-            "dc": [0.3, 0.3, 0.4],
-            "elo": [0.2, 0.3, 0.5],
-            "actual": 2,
-        },
-        {
-            "hgbr": [0.3, 0.5, 0.2],
-            "dc": [0.3, 0.4, 0.3],
-            "elo": [0.3, 0.4, 0.3],
-            "actual": 1,
+            "poisson": [0.5, 0.3, 0.2],
+            "nb": [0.4, 0.3, 0.3],
+            "actual": 0, "home_goals": 2, "away_goals": 1,
         },
     ]
     w = learn_weights(samples)
     assert w["gbm"] == 0.0
-    assert abs(sum(w[k] for k in ("hgbr", "dc", "nb", "elo")) - 1.0) < 1e-6
-    assert w["nb"] == 0.0
+    # Layer-1 归一化
+    assert abs(sum(w[k] for k in ("hgbr", "elo", "bayes")) - 1.0) < 1e-6
+    # Layer-2 归一化
+    assert abs(sum(w[k] for k in ("poisson", "dc", "nb")) - 1.0) < 1e-6
 
 
 # ── 三十二:特征版本不变量 ────────────────────────────────────────────────

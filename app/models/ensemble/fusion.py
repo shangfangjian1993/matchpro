@@ -1,10 +1,10 @@
-"""融合层(审查 §36:ensemble 拆分):概率融合 + 两层 Goal/Outcome。"""
+"""融合层:概率融合 + 两层 Goal/Outcome。
 
+Layer-3 使用 shape_weight + gbm_weight(由 optimize_outcome_weights 学习)。
+"""
 from __future__ import annotations
 
 import numpy as np
-
-_GOAL_MEMBERS = ("hgbr", "dc", "nb", "elo", "bayes")
 
 
 def fuse_probs(
@@ -27,14 +27,23 @@ def fuse_goal_outcome(
     gbm_probs: tuple[float, float, float] | None,
     weights: dict | None = None,
 ) -> tuple[float, float, float]:
-    """两层融合(审查 P0-9):Goal Engine(4 成员)1X2 与 GBM(Outcome)融合。"""
-    w = weights or {"hgbr": 1.0, "dc": 0.0, "nb": 0.0, "elo": 0.0, "gbm": 0.0}
-    w_goal = sum(w.get(k, 0.0) for k in _GOAL_MEMBERS)
-    w_gbm = w.get("gbm", 0.0)
-    if gbm_probs is None or (w_goal + w_gbm) <= 0:
+    """Layer-3 融合:Shape 1X2 与 GBM 1X2 融合。
+    
+    使用 learned shape_weight + gbm_weight(由 optimize_outcome_weights 学习)。
+    weights 中必须包含 "shape_weight" 和 "gbm_weight"。
+    """
+    if gbm_probs is None:
         return tuple(goal_probs)
-    total = w_goal + w_gbm
+    
+    # P0-6 FIX: 使用 learned shape_weight + gbm_weight
+    shape_weight = weights.get("shape_weight", 1.0) if weights else 1.0
+    gbm_weight = weights.get("gbm_weight", 0.0) if weights else 0.0
+    
+    total = shape_weight + gbm_weight
+    if total <= 0:
+        return tuple(goal_probs)
+    
     return tuple(
-        round(w_goal / total * g + w_gbm / total * b, 6)
+        round(shape_weight / total * g + gbm_weight / total * b, 6)
         for g, b in zip(goal_probs, gbm_probs)
     )

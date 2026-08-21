@@ -133,6 +133,7 @@ def learn_weights(
         "hgbr": w_gl.get("hgbr", 0.0),
         "elo": w_gl.get("elo", 0.0),
         "bayes": w_gl.get("bayes", 0.0),
+        "poisson": w_sd.get("poisson", 0.0),
         "dc": w_sd.get("dc", 0.0),
         "nb": w_sd.get("nb", 0.0),
         "gbm": 0.0,

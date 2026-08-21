@@ -14,7 +14,7 @@ def run_all(leagues, verbose: bool = True) -> dict:
     from app.core.paths import ARTIFACTS_DIR as _AD
 
     from .artifact_writer import write_all
-    from .weight_optimizer import fit_tau, optimize
+    from .weight_optimizer import optimize
 
     _ens_dir = str(_AD / "ensemble")
     weights_out, params_out, meta_out = {}, {}, {}
@@ -22,10 +22,9 @@ def run_all(leagues, verbose: bool = True) -> dict:
         oof_samples = generate(lt, league, matches, verbose=verbose)
         if not oof_samples:
             continue
-        tau = fit_tau(oof_samples)
-        phi, w, samples = optimize(oof_samples, tau, phi=None, shrinkage=0.15)
-        params_out[lt.value] = {"tau": tau, "phi": phi}
-        # optimize 内已 learn_weights(shrinkage);samples 用于记录
+        result = optimize(oof_samples)
+        w = result.weights
+        params_out[lt.value] = {"tau": result.tau, "phi": result.phi}
         weights_out[lt.value] = {
             k: round(v, 4)
             for k, v in w.items()
@@ -33,17 +32,18 @@ def run_all(leagues, verbose: bool = True) -> dict:
         }
         meta_out[lt.value] = {
             "log_loss": round(w["log_loss"], 4),
-            "n": len(samples),
+            "n": w.get("n", 0),
             "segments": K_SEG,
             "method": "time-segmented-oof",
             "k_seg": K_SEG,
-            "shrinkage": 0.15,
+            "shrinkage": w.get("shrinkage", 0.15),
+            "config": result.metadata.get("config", {}),
         }
         if verbose:
             print(
-                f"  {lt.value}: τ={tau:.3f} φ={phi:.1f} "
+                f"  {lt.value}: τ={result.tau:.3f} φ={result.phi:.1f} "
                 f"w={ {k: round(v, 3) for k, v in weights_out[lt.value].items()} } "
-                f"ll={w['log_loss']:.4f} n={len(samples)}",
+                f"ll={w['log_loss']:.4f} n={w.get('n', 0)}",
                 flush=True,
             )
     write_all(weights_out, params_out, meta_out, _ens_dir)

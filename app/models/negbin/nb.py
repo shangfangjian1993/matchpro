@@ -45,10 +45,6 @@ def nb_probs(
 
 
 def fit_nb_phi(samples: list[dict]) -> float:
-    """φ 拟合:进球数的过离散度(Var/Mean-1)倒数;≈0 时取大值=泊松。"""
-    goals = [s["home_goals"] for s in samples] + [s["away_goals"] for s in samples]
-    mean = float(np.mean(goals))
-    var = float(np.var(goals))
-    if var <= mean or mean <= 0:
-        return 1e9
-    return float(mean / (var - mean))
+    """φ 拟合(委托给新实现)。"""
+    from app.services.training.ensemble.optimizers.nb_parameter import fit_phi
+    return fit_phi(samples)

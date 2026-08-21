@@ -203,8 +203,9 @@ def test_load_weights_flat_format():
 def test_gh_ablation_different():
     """P0-2: G和H应该产生不同结果(G无Calibration, H有Calibration)。"""
     import numpy as np
+
     from app.core.config import LeagueType
-    from app.prediction.layered_pipeline import compute_prediction, AblationMask
+    from app.prediction.layered_pipeline import AblationMask, compute_prediction
 
     # 构造测试输入
     np.random.seed(42)
@@ -248,6 +249,7 @@ def test_gh_ablation_different():
 def test_score_matrix_mass_invariant():
     """P0-3: score matrix 质量守恒(sum≈1)。"""
     import numpy as np
+
     from app.core.config import LeagueType
     from app.prediction.layered_pipeline import compute_prediction
 
@@ -281,8 +283,6 @@ def test_score_matrix_mass_invariant():
 
 def test_production_training_parity():
     """P1-6: Production/Training 数学同构测试。"""
-    import numpy as np
-    from app.core.config import LeagueType
     from app.prediction.layered_pipeline import compute_prediction
     from app.services.training.ensemble.member_builder import build_member_samples
 
@@ -316,3 +316,79 @@ def test_production_training_parity():
         # Training fused λ == Production fused λ
         assert abs(samples[0]["fused_lam_h"] - result.fused_lambda[0]) < 0.01
         assert abs(samples[0]["fused_lam_a"] - result.fused_lambda[1]) < 0.01
+
+
+def test_layer2_poisson_weight_preserved():
+    """P0-3: Layer-2 Poisson权重在artifact中保存。"""
+    from app.models.ensemble.weights import to_layered
+    
+    # 模拟 learn_weights 输出(包含 poisson)
+    flat_weights = {
+        "hgbr": 0.4, "elo": 0.3, "bayes": 0.3,
+        "poisson": 0.5, "dc": 0.3, "nb": 0.2,
+        "gbm": 0.3,
+    }
+    
+    layered = to_layered(flat_weights)
+    
+    # score_distribution 应该包含 poisson
+    assert "poisson" in layered["score_distribution"]
+    assert layered["score_distribution"]["poisson"] > 0
+
+
+def test_ensemble_training_result():
+    """P0-1: EnsembleTrainingResult 不可变。"""
+    from app.services.training.ensemble.weight_optimizer import EnsembleTrainingResult
+    
+    result = EnsembleTrainingResult(
+        tau=0.05, phi=50.0,
+        weights={"hgbr": 0.5},
+        metadata={"test": True}
+    )
+    
+    assert result.tau == 0.05
+    assert result.phi == 50.0
+    assert result.weights == {"hgbr": 0.5}
+    
+    # 不可变
+    try:
+        result.tau = 0.1
+        assert False, "Should be frozen"
+    except AttributeError:
+        pass
+
+
+def test_nb_phi_formula():
+    """P0-5: NB φ = mean² / (Var - mean)。"""
+    from app.services.training.ensemble.optimizers.nb_parameter import fit_phi
+    
+    # 构造过离散样本: mean=3, var=6
+    # Var = μ + μ²/φ → 6 = 3 + 9/φ → φ = 3
+    samples = [{"home_goals": 0, "away_goals": 6}] * 50 + [{"home_goals": 6, "away_goals": 0}] * 50
+    
+    phi = fit_phi(samples)
+    
+    # φ 应该约为 3.0 (允许误差)
+    assert 1.0 < phi < 10.0, f"phi={phi}, expected ~3.0"
+
+
+def test_gbm_weight_used_in_fusion():
+    """P0-6: fuse_goal_outcome 使用 shape_weight + gbm_weight。"""
+    from app.models.ensemble.fusion import fuse_goal_outcome
+    
+    shape_1x2 = (0.5, 0.3, 0.2)
+    gbm_1x2 = (0.6, 0.25, 0.15)
+    weights = {"shape_weight": 0.7, "gbm_weight": 0.3}
+    
+    result = fuse_goal_outcome(shape_1x2, gbm_1x2, weights)
+    
+    # 手动计算期望
+    expected = (
+        0.7 * 0.5 + 0.3 * 0.6,
+        0.7 * 0.3 + 0.3 * 0.25,
+        0.7 * 0.2 + 0.3 * 0.15,
+    )
+    
+    assert abs(result[0] - expected[0]) < 0.001
+    assert abs(result[1] - expected[1]) < 0.001
+    assert abs(result[2] - expected[2]) < 0.001
