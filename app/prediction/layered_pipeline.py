@@ -83,11 +83,12 @@ def compute_prediction(
 
     # ── Layer 1: Goal λ Ensemble ──
     active_goal = []
-    if "hgbr" in ablation_mask.goal_lambda or not ablation_mask.goal_lambda:
+    _gl = ablation_mask.goal_lambda  # None = all, [] = none, ["x"] = specific
+    if _gl is None or "hgbr" in _gl:
         active_goal.append("hgbr")
-    if "elo" in ablation_mask.goal_lambda or not ablation_mask.goal_lambda:
+    if _gl is None or "elo" in _gl:
         active_goal.append("elo")
-    if ("bayes" in ablation_mask.goal_lambda or not ablation_mask.goal_lambda) and lam_bh is not None and lam_ba is not None:
+    if (_gl is None or "bayes" in _gl) and lam_bh is not None and lam_ba is not None:
         active_goal.append("bayes")
 
     if not active_goal:
@@ -114,11 +115,12 @@ def compute_prediction(
 
     # ── Layer 2: Shape Ensemble (基于 fused λ) ──
     active_shape = []
-    if "poisson" in ablation_mask.score_distribution or not ablation_mask.score_distribution:
+    _sd = ablation_mask.score_distribution
+    if _sd is None or "poisson" in _sd:
         active_shape.append("poisson")
-    if "dc" in ablation_mask.score_distribution or not ablation_mask.score_distribution:
+    if _sd is None or "dc" in _sd:
         active_shape.append("dc")
-    if "nb" in ablation_mask.score_distribution or not ablation_mask.score_distribution:
+    if _sd is None or "nb" in _sd:
         active_shape.append("nb")
 
     if not active_shape:
@@ -214,12 +216,21 @@ def compute_prediction(
 
 
 ABLATION_MASKS = {
-    "A": AblationMask(goal_lambda=["hgbr"], score_distribution=["poisson"]),
-    "B": AblationMask(goal_lambda=["hgbr", "elo"], score_distribution=["poisson"]),
-    "C": AblationMask(goal_lambda=["hgbr", "elo", "bayes"], score_distribution=["poisson"]),
-    "D": AblationMask(score_distribution=["poisson", "dc"]),
-    "E": AblationMask(score_distribution=["poisson", "dc", "nb"]),
-    "F": AblationMask(disable_gbm=False),
-    "G": AblationMask(disable_prior=False),
-    "H": AblationMask(disable_calibration=False),
+    # A-E: 只执行到 Layer 2(禁用 GBM/Prior/Calibration)
+    "A": AblationMask(goal_lambda=["hgbr"], score_distribution=["poisson"],
+                     disable_gbm=True, disable_prior=True, disable_calibration=True),
+    "B": AblationMask(goal_lambda=["hgbr", "elo"], score_distribution=["poisson"],
+                     disable_gbm=True, disable_prior=True, disable_calibration=True),
+    "C": AblationMask(goal_lambda=["hgbr", "elo", "bayes"], score_distribution=["poisson"],
+                     disable_gbm=True, disable_prior=True, disable_calibration=True),
+    "D": AblationMask(score_distribution=["poisson", "dc"],
+                     disable_gbm=True, disable_prior=True, disable_calibration=True),
+    "E": AblationMask(score_distribution=["poisson", "dc", "nb"],
+                     disable_gbm=True, disable_prior=True, disable_calibration=True),
+    # F: + GBM
+    "F": AblationMask(disable_prior=True, disable_calibration=True),
+    # G: + Prior (无 Calibration)
+    "G": AblationMask(disable_calibration=True),
+    # H: 全量 (Prior + Calibration)
+    "H": AblationMask(),
 }

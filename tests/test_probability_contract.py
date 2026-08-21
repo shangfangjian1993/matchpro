@@ -173,7 +173,7 @@ def test_snapshot_contract(db_ctx):
 
 def test_to_layered_idempotent():
     """P0-2: to_layered 幂等性测试。"""
-    from app.models.ensemble.weights import to_layered, from_layered, DEFAULT_WEIGHTS
+    from app.models.ensemble.weights import DEFAULT_WEIGHTS, from_layered, to_layered
 
     # layered → to_layered 应该保持不变
     layered = to_layered(DEFAULT_WEIGHTS)
@@ -198,3 +198,48 @@ def test_load_weights_flat_format():
     # engine.py 需要 flat 格式
     for k in ("hgbr", "elo", "bayes", "dc", "nb", "gbm"):
         assert k in w, f"Missing key: {k}"
+
+
+def test_gh_ablation_different():
+    """P0-2: G和H应该产生不同结果(G无Calibration, H有Calibration)。"""
+    import numpy as np
+    from app.core.config import LeagueType
+    from app.prediction.layered_pipeline import compute_prediction, AblationMask
+
+    # 构造测试输入
+    np.random.seed(42)
+    weights = {
+        "goal_lambda": {"hgbr": 0.5, "elo": 0.3, "bayes": 0.2},
+        "score_distribution": {"poisson": 0.5, "dc": 0.3, "nb": 0.2},
+        "outcome": {"gbm": 0.7},
+    }
+    gbm_probs = (0.6, 0.25, 0.15)
+    raw_matrix = np.eye(10) * 0.1
+    raw_matrix[1, 1] = 0.9  # 强信号
+
+    mask_g = AblationMask(disable_calibration=True)
+    mask_h = AblationMask()
+
+    result_g = compute_prediction(
+        lam_h=1.5, lam_a=1.2, lam_eh=1.4, lam_ea=1.1,
+        tau=0.05, phi=50.0, weights=weights,
+        lam_bh=1.3, lam_ba=1.2,
+        gbm_probs=gbm_probs,
+        prior_context={"league_id": 1, "match_dt": "2026-01-01", "raw_matrix": raw_matrix},
+        calibration_context={"models_dir": "/tmp/fake_models", "league_type": LeagueType.PREMIER_LEAGUE},
+        ablation_mask=mask_g,
+    )
+
+    result_h = compute_prediction(
+        lam_h=1.5, lam_a=1.2, lam_eh=1.4, lam_ea=1.1,
+        tau=0.05, phi=50.0, weights=weights,
+        lam_bh=1.3, lam_ba=1.2,
+        gbm_probs=gbm_probs,
+        prior_context={"league_id": 1, "match_dt": "2026-01-01", "raw_matrix": raw_matrix},
+        calibration_context={"models_dir": "/tmp/fake_models", "league_type": LeagueType.PREMIER_LEAGUE},
+        ablation_mask=mask_h,
+    )
+
+    if result_g is not None and result_h is not None:
+        # G 和 H 的结果应该不同(因为 calibration 不同)
+        assert result_g.final_1x2 != result_h.final_1x2, "G和H应该产生不同结果"

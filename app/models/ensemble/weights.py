@@ -227,8 +227,7 @@ def _run_slsqp(objective, prior, candidates, max_weight, all_names, n, layer_nam
     )
 
     if not res.success:
-        import logging
-        logging.getLogger(__name__).warning(f"{layer_name} SLSQP failed: {res.message}")
+        raise OptimizationError(f"{layer_name} SLSQP failed: {res.message}")
 
     w = np.clip(res.x, 0.0, 1.0)
     w = w / w.sum()
