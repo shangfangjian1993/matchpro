@@ -41,26 +41,11 @@ def run_all(leagues, verbose: bool = True) -> dict:
             "config": result.metadata.get("config", {}),
         }
         
-        # P0-1: 创建 ProductionArtifact (league scoped)
-        # P1-1: training_cutoff 暂为空(需要从外部注入数据截止时间)
-        # P1-2: 传递真实 K_SEG
-        artifact = create_production_artifact(
-            league=lt.value,
-            weights=w,
-            tau=result.tau,
-            phi=result.phi,
-            oof_n=w.get("n", 0),
-            shrinkage=w.get("shrinkage", 0.15),
-            training_cutoff="",  # P1-1: 待外部注入
-            oof_segments=K_SEG,  # P1-2: 真实 K_SEG
-        )
-        
         if verbose:
             print(
                 f"  {lt.value}: τ={result.tau:.3f} φ={result.phi:.1f} "
                 f"w={ {k: round(v, 3) for k, v in weights_out[lt.value].items()} } "
-                f"ll={w['log_loss']:.4f} n={w.get('n', 0)} "
-                f"hash={artifact.model_hash()[:8]}",
+                f"ll={w['log_loss']:.4f} n={w.get('n', 0)}",
                 flush=True,
             )
     

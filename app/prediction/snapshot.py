@@ -20,6 +20,15 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
+_ARTIFACTS_DIR = None
+
+def _get_artifacts_dir():
+    global _ARTIFACTS_DIR
+    if _ARTIFACTS_DIR is None:
+        from app.core.paths import ARTIFACTS_DIR as _AD
+        _ARTIFACTS_DIR = str(_AD)
+    return _ARTIFACTS_DIR
+
 
 def save(
     league,
@@ -170,7 +179,7 @@ def save(
     _ens_hash = None
     try:
         _ens_dir = os.path.join(
-            str(__import__("app.core.paths", fromlist=["ARTIFACTS_DIR"]).ARTIFACTS_DIR),
+            _get_artifacts_dir(),
             "ensemble",
         )
         _ens_raw = ""
