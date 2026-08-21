@@ -3,20 +3,16 @@
 Production / OOF / Ablation / Replay 全部调用同一个函数,
 区别仅在于 data cutoff、model artifact、ablation mask。
 
-完整流水线:
-  Layer 1: Goal λ Ensemble (HGBR/ELO/Bayes) → fused λ
+数学契约:
+  Layer 1: Goal λ Ensemble (HGBR/ELO/Bayes, mask+归一) → fused λ
   Layer 2: Shape Ensemble (Poisson/DC/NB,基于 fused λ) → Goal 1X2
   Layer 3: Outcome GBM → Outcome 1X2
-  + Prior + Calibration → Final 1X2
-
-数学不变量:
-  - DC/NB 永远基于 fused λ,而非 HGBR λ
-  - 缺失成员 mask 后重新归一化,不隐式替代
-  - 所有调用者使用同一个 compute_prediction() 函数
+  Layer 4: Prior Blend
+  Layer 5: Calibration
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -34,10 +30,10 @@ from app.models.ensemble.weights import to_layered
 class AblationMask:
     """消融掩码:控制哪些成员参与计算。
 
-    None 表示该层全部参与(生产模式),
-    非空列表表示只保留指定成员。
+    None = 该层全部参与(生产模式),
+    非空列表 = 只保留指定成员。
     """
-    goal_lambda: list[str] | None = None  # None = 全部参与
+    goal_lambda: list[str] | None = None
     score_distribution: list[str] | None = None
     disable_gbm: bool = False
     disable_prior: bool = False
@@ -46,95 +42,15 @@ class AblationMask:
 
 @dataclass
 class LayeredResult:
-    """分层计算结果(用于审计/对比/诊断)。
-
-    所有字段都是真实计算结果,无虚假完成度。
-    """
+    """分层计算结果。所有字段都是真实计算结果,无虚假完成度。"""
     fused_lambda: tuple[float, float]
-    goal_1x2: tuple[float, float, float]  # Shape ensemble 1X2
-    shape_1x2: tuple[float, float, float]  # 同 goal_1x2(Layer 2 输出)
-    outcome_1x2: tuple[float, float, float]  # After GBM fusion
-    final_1x2: tuple[float, float, float]  # After prior + calibration
-    score_matrix: np.ndarray  # 用于 xG / calibration 计算
+    goal_1x2: tuple[float, float, float]
+    shape_1x2: tuple[float, float, float]
+    outcome_1x2: tuple[float, float, float]
+    final_1x2: tuple[float, float, float]
+    score_matrix: np.ndarray
     ablation_mask: AblationMask | None = None
-
-
-def _fuse_goal_lambda(
-    lam_h: float, lam_a: float,
-    lam_eh: float, lam_ea: float,
-    lam_bh: float | None, lam_ba: float | None,
-    goal_weights: dict,
-    mask: list[str] | None,
-) -> tuple[dict, float, float]:
-    """Layer-1: Goal λ Ensemble with mask + renormalize.
-
-    Returns: (active_weights, fh, fa) or raises ValueError if no active members.
-    """
-    active_weights = {}
-    for name in ["hgbr", "elo", "bayes"]:
-        if mask is not None and name not in mask:
-            continue  # masked out
-        if name == "bayes" and (lam_bh is None or lam_ba is None):
-            continue  # Bayes unavailable → mask
-        w = goal_weights.get(name, 0.0)
-        if w > 0:
-            active_weights[name] = w
-
-    if not active_weights:
-        raise ValueError("No active goal lambda members")
-
-    wsum = sum(active_weights.values())
-    active_weights = {k: v / wsum for k, v in active_weights.items()}
-
-    fh = (
-        active_weights.get("hgbr", 0.0) * lam_h
-        + active_weights.get("elo", 0.0) * lam_eh
-        + active_weights.get("bayes", 0.0) * (lam_bh or 0.0)
-    )
-    fa = (
-        active_weights.get("hgbr", 0.0) * lam_a
-        + active_weights.get("elo", 0.0) * lam_ea
-        + active_weights.get("bayes", 0.0) * (lam_ba or 0.0)
-    )
-
-    return active_weights, fh, fa
-
-
-def _compute_shape(
-    fh: float, fa: float,
-    tau: float, phi: float,
-    shape_weights: dict,
-    mask: list[str] | None,
-) -> tuple[dict, dict]:
-    """Layer-2: Shape Ensemble (基于 fused λ).
-
-    Returns: (active_weights, member_probs)
-    """
-    active_shape = []
-    for name in ["poisson", "dc", "nb"]:
-        if mask is not None and name not in mask:
-            continue
-        active_shape.append(name)
-
-    if not active_shape:
-        active_shape = ["poisson"]  # fallback
-
-    active_sd = {k: shape_weights.get(k, 0.0) for k in active_shape}
-    sd_sum = sum(active_sd.values())
-    if sd_sum <= 0:
-        active_sd = {k: 1.0 / len(active_shape) for k in active_shape}
-    else:
-        active_sd = {k: v / sd_sum for k, v in active_sd.items()}
-
-    probs = {}
-    if "poisson" in active_shape:
-        probs["poisson"] = match_probs(fh, fa)
-    if "dc" in active_shape:
-        probs["dc"] = dc_probs(fh, fa, tau)
-    if "nb" in active_shape:
-        probs["nb"] = nb_probs(fh, fa, phi)
-
-    return active_sd, probs
+    diagnostics: dict = field(default_factory=dict)
 
 
 def compute_prediction(
@@ -152,60 +68,87 @@ def compute_prediction(
     calibration_context: dict | None = None,
     ablation_mask: AblationMask | None = None,
 ) -> LayeredResult | None:
-    """完整预测流水线(所有调用者的唯一入口)。
+    """完整预测流水线(唯一入口)。
 
     执行: Layer 1 → Layer 2 → Layer 3 (GBM) → Prior → Calibration
-
-    Args:
-        lam_h: HGBR λ home
-        lam_a: HGBR λ away
-        lam_eh: ELO λ home
-        lam_ea: ELO λ away
-        tau: Dixon-Coles 参数
-        phi: Negative Binomial 参数
-        weights: 生产学到的权重(dict)
-        lam_bh: Bayes λ home(可为 None)
-        lam_ba: Bayes λ away(可为 None)
-        gbm_probs: GBM 1X2 概率(可为 None)
-        prior_context: Prior 上下文(league_id, match_dt, raw_matrix)
-        calibration_context: Calibration 上下文(models_dir, league_type)
-        ablation_mask: 消融掩码(生产模式传 None)
-
-    Returns:
-        LayeredResult 或 None(必要 λ 缺失且无法 mask)
     """
     if ablation_mask is None:
         ablation_mask = AblationMask()
+    diagnostics: dict = {}
 
+    # to_layered 现在是幂等的(DEFAULT_WEIGHTS 已经是 layered)
     lay = to_layered(weights)
     gl = lay["goal_lambda"]
     sd = lay["score_distribution"]
 
     # ── Layer 1: Goal λ Ensemble ──
-    try:
-        _, fh, fa = _fuse_goal_lambda(
-            lam_h, lam_a, lam_eh, lam_ea, lam_bh, lam_ba, gl,
-            ablation_mask.goal_lambda,
-        )
-    except ValueError:
+    active_goal = []
+    if "hgbr" in ablation_mask.goal_lambda or not ablation_mask.goal_lambda:
+        active_goal.append("hgbr")
+    if "elo" in ablation_mask.goal_lambda or not ablation_mask.goal_lambda:
+        active_goal.append("elo")
+    if ("bayes" in ablation_mask.goal_lambda or not ablation_mask.goal_lambda) and lam_bh is not None and lam_ba is not None:
+        active_goal.append("bayes")
+
+    if not active_goal:
+        diagnostics["error"] = "No active goal lambda members"
         return None
 
-    # ── Layer 2: Shape Ensemble (基于 fused λ) ──
-    active_sd, shape_probs = _compute_shape(
-        fh, fa, tau, phi, sd,
-        ablation_mask.score_distribution,
+    active_weights = {k: gl.get(k, 0.0) for k in active_goal}
+    wsum = sum(active_weights.values())
+    if wsum <= 0:
+        diagnostics["error"] = "Goal lambda weights sum to 0"
+        return None
+    active_weights = {k: v / wsum for k, v in active_weights.items()}
+
+    fh = (
+        active_weights.get("hgbr", 0.0) * lam_h
+        + active_weights.get("elo", 0.0) * lam_eh
+        + active_weights.get("bayes", 0.0) * (lam_bh or 0.0)
+    )
+    fa = (
+        active_weights.get("hgbr", 0.0) * lam_a
+        + active_weights.get("elo", 0.0) * lam_ea
+        + active_weights.get("bayes", 0.0) * (lam_ba or 0.0)
     )
 
-    shape_1x2 = fuse_probs(shape_probs, active_sd)
+    # ── Layer 2: Shape Ensemble (基于 fused λ) ──
+    active_shape = []
+    if "poisson" in ablation_mask.score_distribution or not ablation_mask.score_distribution:
+        active_shape.append("poisson")
+    if "dc" in ablation_mask.score_distribution or not ablation_mask.score_distribution:
+        active_shape.append("dc")
+    if "nb" in ablation_mask.score_distribution or not ablation_mask.score_distribution:
+        active_shape.append("nb")
 
-    # Compute score matrix for xG / calibration
+    if not active_shape:
+        active_shape = ["poisson"]
+
+    active_sd = {k: sd.get(k, 0.0) for k in active_shape}
+    sd_sum = sum(active_sd.values())
+    if sd_sum <= 0:
+        active_sd = {k: 1.0 / len(active_shape) for k in active_shape}
+    else:
+        active_sd = {k: v / sd_sum for k, v in active_sd.items()}
+
+    probs = {}
+    if "poisson" in active_shape:
+        probs["poisson"] = match_probs(fh, fa)
+    if "dc" in active_shape:
+        probs["dc"] = dc_probs(fh, fa, tau)
+    if "nb" in active_shape:
+        probs["nb"] = nb_probs(fh, fa, phi)
+
+    shape_1x2 = fuse_probs(probs, active_sd)
+
+    # Score matrix for xG / calibration
     from app.models.ensemble import _dc_matrix, _nb_matrix, _pois_matrix
     matrices = {}
-    if "poisson" in shape_probs:
+    if "poisson" in probs:
         matrices["poisson"] = _pois_matrix(fh, fa)
-    if "dc" in shape_probs:
+    if "dc" in probs:
         matrices["dc"] = _dc_matrix(fh, fa, tau)
-    if "nb" in shape_probs:
+    if "nb" in probs:
         matrices["nb"] = _nb_matrix(fh, fa, phi)
     score_matrix = fuse_score_matrix(matrices, active_sd)
 
@@ -215,15 +158,15 @@ def compute_prediction(
         from app.models.ensemble.fusion import fuse_goal_outcome
         outcome_1x2 = fuse_goal_outcome(shape_1x2, gbm_probs, weights)
 
-    # ── Prior ──
+    # ── Layer 4: Prior ──
     final_1x2 = outcome_1x2
     if prior_context is not None and not ablation_mask.disable_prior:
         from app.prediction.prior_blend import blend_matrix as _prod_blend
-        try:
-            league_id = prior_context.get("league_id")
-            match_dt = prior_context.get("match_dt")
-            raw_matrix = prior_context.get("raw_matrix", score_matrix)
-            if league_id is not None and match_dt is not None:
+        league_id = prior_context.get("league_id")
+        match_dt = prior_context.get("match_dt")
+        raw_matrix = prior_context.get("raw_matrix", score_matrix)
+        if league_id is not None and match_dt is not None:
+            try:
                 m2, _info = _prod_blend(league_id, match_dt, list(outcome_1x2), np.asarray(raw_matrix))
                 if m2 is not None:
                     final_1x2 = tuple(float(x) for x in (
@@ -231,10 +174,11 @@ def compute_prediction(
                         np.trace(np.asarray(m2)),
                         np.asarray(m2)[np.triu_indices(len(m2), 1)].sum(),
                     ))
-        except Exception:
-            pass  # Prior 失败 → 回退到 outcome_1x2
+                diagnostics["prior"] = "applied"
+            except Exception as e:
+                diagnostics["prior"] = f"fallback: {type(e).__name__}"
 
-    # ── Calibration ──
+    # ── Layer 5: Calibration ──
     if calibration_context is not None and not ablation_mask.disable_calibration:
         from app.prediction import calibration as cal
         try:
@@ -253,8 +197,9 @@ def compute_prediction(
                 out["draw_probability"],
                 out["away_win_probability"],
             )
-        except Exception:
-            pass  # Calibration 失败 → 回退
+            diagnostics["calibration"] = "applied"
+        except Exception as e:
+            diagnostics["calibration"] = f"fallback: {type(e).__name__}"
 
     return LayeredResult(
         fused_lambda=(fh, fa),
@@ -264,10 +209,10 @@ def compute_prediction(
         final_1x2=final_1x2,
         score_matrix=score_matrix,
         ablation_mask=ablation_mask,
+        diagnostics=diagnostics,
     )
 
 
-# ── 预定义的 Ablation 配置(用于 Season-Start Expanding-Window 评估) ──
 ABLATION_MASKS = {
     "A": AblationMask(goal_lambda=["hgbr"], score_distribution=["poisson"]),
     "B": AblationMask(goal_lambda=["hgbr", "elo"], score_distribution=["poisson"]),

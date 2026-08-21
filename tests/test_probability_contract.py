@@ -169,3 +169,32 @@ def test_snapshot_contract(db_ctx):
         assert "bayes" in ms  # Bayes 必须出现在 model_set
         if ms.get("bayes"):
             assert "version" in ms["bayes"]
+
+
+def test_to_layered_idempotent():
+    """P0-2: to_layered 幂等性测试。"""
+    from app.models.ensemble.weights import to_layered, from_layered, DEFAULT_WEIGHTS
+
+    # layered → to_layered 应该保持不变
+    layered = to_layered(DEFAULT_WEIGHTS)
+    assert to_layered(layered) == layered
+
+    # flat → to_layered → from_layered → to_layered 应该稳定
+    flat = {"hgbr": 0.5, "elo": 0.3, "bayes": 0.2, "dc": 0.3, "nb": 0.2, "gbm": 0.5}
+    layered1 = to_layered(flat)
+    flat2 = from_layered(layered1)
+    layered2 = to_layered(flat2)
+    # 允许 rounding tolerance
+    for k in layered1["goal_lambda"]:
+        assert abs(layered1["goal_lambda"][k] - layered2["goal_lambda"][k]) < 0.01
+    for k in layered1["score_distribution"]:
+        assert abs(layered1["score_distribution"][k] - layered2["score_distribution"][k]) < 0.01
+
+
+def test_load_weights_flat_format():
+    """load_weights 返回 flat 格式(engine 兼容)。"""
+    from app.models.ensemble.weights import load_weights
+    w = load_weights("premier_league")
+    # engine.py 需要 flat 格式
+    for k in ("hgbr", "elo", "bayes", "dc", "nb", "gbm"):
+        assert k in w, f"Missing key: {k}"

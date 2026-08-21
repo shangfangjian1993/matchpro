@@ -30,6 +30,27 @@ logger = logging.getLogger(__name__)
 
 BASE = "https://sports.bzzoiro.com/api/v2/_"
 
+# stats 字段映射(API key → DB column)
+_STATS_MAP = {
+    "expected_goals": "xg",
+    "total_shots": "shots",
+    "shots_on_target": "shots_on_target",
+    "ball_possession": "possession",
+    "corner_kicks": "corners",
+    "yellow_cards": "yellow_cards",
+    "red_cards": "red_cards",
+    "fouls": "fouls",
+    "offsides": "offsides",
+    "tackles": "tackles",
+    "interceptions": "interceptions",
+    "clearances": "clearances",
+    "blocked_shots": "blocked_shots",
+    "big_chances": "big_chances",
+    "total_saves": "total_saves",
+    "shots_inside_box": "shots_inside_box",
+    "shots_outside_box": "shots_outside_box",
+}
+
 
 # 多 key 自动轮换(遇到 429 自动切换下一个)
 _KEYS = None
@@ -532,7 +553,7 @@ def import_recent(
         d0["results"][0]["event_date"].replace("Z", "+00:00")
     )
     last_season = latest.year if latest.month >= 8 else latest.year - 1
-    cutoff = _dt.datetime(last_season - seasons + 1, 8, 1)
+    cutoff = _dt.datetime(last_season - seasons + 1, 8, 1, tzinfo=_dt.timezone.utc)
     total = d0.get("count", 0)
 
     rows, ofs = [], 0

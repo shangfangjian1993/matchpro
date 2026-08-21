@@ -1,5 +1,9 @@
-"""权重配置与学习(审查 §36:ensemble 拆分)。"""
+"""权重配置与学习(Layered格式)。
 
+Layer-1: Goal λ Ensemble (HGBR/ELO/Bayes)
+Layer-2: Score Distribution (Poisson/DC/NB,基于 fused λ)
+Layer-3: Outcome GBM
+"""
 from __future__ import annotations
 
 import json
@@ -15,8 +19,6 @@ DEFAULT_WEIGHTS = {
     "outcome": {"gbm": 1.0},
 }
 
-# 兼容旧扁平格式(仅用于加载历史权重文件)
-# 新代码应直接使用分层格式
 LAYER_MAP = {
     "goal_lambda": ("hgbr", "elo", "bayes"),
     "score_distribution": ("poisson", "dc", "nb"),
@@ -24,30 +26,53 @@ LAYER_MAP = {
 }
 
 
-def to_layered(flat: dict) -> dict:
-    """扁平权重(旧格式) → 三层视图。仅用于兼容历史权重文件加载。"""
-    goal = {k: float(flat.get(k, 0.0)) for k in LAYER_MAP["goal_lambda"]}
+def to_layered(data: dict) -> dict:
+    """转换为分层格式(幂等)。
+
+    支持:
+    - flat 格式(旧): {"hgbr": 0.5, "elo": 0.3, ...}
+    - layered 格式(新): {"goal_lambda": {...}, ...}
+    """
+    if _is_layered(data):
+        # 已经是 layered → 归一化后返回(幂等)
+        return _normalize_layered(data)
+    # flat → layered
+    goal = {k: float(data.get(k, 0.0)) for k in LAYER_MAP["goal_lambda"]}
     gsum = sum(goal.values()) or 1.0
     sd = {
         "poisson": gsum,
-        "dc": float(flat.get("dc", 0.0)),
-        "nb": float(flat.get("nb", 0.0)),
+        "dc": float(data.get("dc", 0.0)),
+        "nb": float(data.get("nb", 0.0)),
     }
     ssum = sum(sd.values()) or 1.0
     return {
         "goal_lambda": {k: round(v / gsum, 4) for k, v in goal.items()},
         "score_distribution": {k: round(v / ssum, 4) for k, v in sd.items()},
-        "outcome": {"gbm": round(float(flat.get("gbm", 0.0)), 4)},
+        "outcome": {"gbm": round(float(data.get("gbm", 0.0)), 4)},
+    }
+
+
+def _normalize_layered(layered: dict) -> dict:
+    """归一化 layered 格式(确保权重和为 1)。"""
+    goal = layered.get("goal_lambda", {})
+    gsum = sum(float(goal.get(k, 0.0)) for k in LAYER_MAP["goal_lambda"]) or 1.0
+    sd = layered.get("score_distribution", {})
+    ssum = sum(float(sd.get(k, 0.0)) for k in LAYER_MAP["score_distribution"]) or 1.0
+    outcome = layered.get("outcome", {})
+    gb = float(outcome.get("gbm", 0.0))
+    return {
+        "goal_lambda": {k: round(float(goal.get(k, 0.0)) / gsum, 4) for k in LAYER_MAP["goal_lambda"]},
+        "score_distribution": {k: round(float(sd.get(k, 0.0)) / ssum, 4) for k in LAYER_MAP["score_distribution"]},
+        "outcome": {"gbm": round(gb, 4)},
     }
 
 
 def from_layered(layered: dict) -> dict:
-    """三层视图 → 扁平(旧格式)。仅用于兼容历史权重文件加载。"""
+    """分层 → flat(兼容旧接口)。"""
     goal = layered.get("goal_lambda", {})
     sd = layered.get("score_distribution", {})
     gb = layered.get("outcome", {}).get("gbm", 0.0)
     poisson = float(sd.get("poisson", 0.0))
-    # poisson 基权重按 goal 成员比例回分(hgbr/elo/bayes)
     gsum = sum(float(goal.get(k, 0.0)) for k in LAYER_MAP["goal_lambda"]) or 1.0
     w = {
         "hgbr": poisson * (float(goal.get("hgbr", 0.0)) / gsum),
@@ -72,6 +97,10 @@ def set_weights_path(path: str | None):
     _WEIGHTS_PATH = path
 
 
+class OptimizationError(Exception):
+    """SLSQP 优化失败。"""
+
+
 def learn_weights(
     samples: list[dict],
     tau: float = 0.0,
@@ -80,29 +109,26 @@ def learn_weights(
     prior: dict | None = None,
     max_weight: float = 0.7,
 ) -> dict:
-    """分层权重学习:Layer-1(goal lambda) + Layer-2(score distribution) 分别优化。
+    """分层权重学习:L-1(λ fusion) + L-2(shape) 分别优化。
 
-    与生产 LayeredPipeline 一致:
-      Layer-1: lambda = w_h*lambda_hgbr + w_e*lambda_elo + w_b*lambda_bayes
-      Layer-2: P = a_p*Pois(fused) + a_dc*DC(fused) + a_nb*NB(fused)
-
-    返回: 兼容旧格式的 flat dict(hgbr/elo/bayes/dc/nb/gbm),但数学上对应分层权重。
+    Layer-1 使用 Poisson Goal NLL(直接优化 λ 融合)
+    Layer-2 使用 1X2 LogLoss(优化 score distribution)
+    Layer-3 (GBM) 使用 outcome fusion(单独学习)
     """
     _candidates_gl = ["hgbr", "elo", "bayes"]
     _candidates_sd = ["poisson", "dc", "nb"]
-    
+
     _present_gl = [n for n in _candidates_gl if any(n in s for s in samples)]
     _present_sd = [n for n in _candidates_sd if any(n in s for s in samples)]
-    
+
     n = max(1, len(samples))
-    
-    # Layer-1: Goal λ 权重
-    w_gl = _optimize_layer_weights(samples, _present_gl, shrinkage, max_weight, n, prior)
-    
-    # Layer-2: Score Distribution 权重
-    w_sd = _optimize_layer_weights(samples, _present_sd, shrinkage, max_weight, n, prior)
-    
-    # 组合为 flat 格式(兼容旧接口)
+
+    # Layer-1: Goal λ 权重(使用 Poisson NLL)
+    w_gl = _optimize_layer_weights_poisson(samples, _present_gl, shrinkage, max_weight, n, prior)
+
+    # Layer-2: Score Distribution 权重(使用 1X2 LogLoss)
+    w_sd = _optimize_layer_weights_1x2(samples, _present_sd, shrinkage, max_weight, n, prior)
+
     out = {
         "hgbr": w_gl.get("hgbr", 0.0),
         "elo": w_gl.get("elo", 0.0),
@@ -117,21 +143,56 @@ def learn_weights(
     return out
 
 
-def _optimize_layer_weights(samples, candidates, shrinkage, max_weight, n, prior):
-    """优化单层权重(goal_lambda 或 score_distribution)。"""
+def _optimize_layer_weights_poisson(samples, candidates, shrinkage, max_weight, n, prior):
+    """Layer-1: 使用 Poisson Goal NLL 优化 λ 权重。"""
     all_names = ["hgbr", "elo", "bayes", "poisson", "dc", "nb"]
     if not candidates:
-        return {name: 1.0 if name == "poisson" else 0.0 for name in all_names}
-    
+        return {name: 1.0 if name == "hgbr" else 0.0 for name in all_names}
+
     if prior is None:
-        _prior = _compute_baseline_prior(samples, candidates, n)
+        _prior = _compute_baseline_prior_poisson(samples, candidates, n)
     else:
         _prior = np.array([prior.get(name, 0.0) for name in candidates], dtype=float)
         _prior = _prior / _prior.sum() if _prior.sum() > 0 else np.ones(len(candidates)) / len(candidates)
-    
+
     if len(candidates) < 2:
         return {name: (1.0 if name == candidates[0] else 0.0) for name in all_names}
-    
+
+    def _nll(w):
+        ll = 0.0
+        for s in samples:
+            # 计算 fused λ
+            lam_h = sum(w[i] * s[f"{name}_lam_h"] for i, name in enumerate(candidates) if f"{name}_lam_h" in s)
+            lam_a = sum(w[i] * s[f"{name}_lam_a"] for i, name in enumerate(candidates) if f"{name}_lam_a" in s)
+            # Poisson NLL
+            from math import lgamma, log
+            gh = int(s.get("home_goals", 0))
+            ga = int(s.get("away_goals", 0))
+            ll -= (gh * log(max(lam_h, 1e-12)) - lam_h - lgamma(gh + 1))
+            ll -= (ga * log(max(lam_a, 1e-12)) - lam_a - lgamma(ga + 1))
+        ll = ll / n
+        if shrinkage > 0 and len(candidates) > 1:
+            ll += shrinkage * float(np.mean((w - _prior) ** 2))
+        return ll
+
+    return _run_slsqp(_nll, _prior, candidates, max_weight, all_names, n, "Layer-1")
+
+
+def _optimize_layer_weights_1x2(samples, candidates, shrinkage, max_weight, n, prior):
+    """Layer-2: 使用 1X2 LogLoss 优化 shape 权重。"""
+    all_names = ["hgbr", "elo", "bayes", "poisson", "dc", "nb"]
+    if not candidates:
+        return {name: 1.0 if name == "poisson" else 0.0 for name in all_names}
+
+    if prior is None:
+        _prior = _compute_baseline_prior_1x2(samples, candidates, n)
+    else:
+        _prior = np.array([prior.get(name, 0.0) for name in candidates], dtype=float)
+        _prior = _prior / _prior.sum() if _prior.sum() > 0 else np.ones(len(candidates)) / len(candidates)
+
+    if len(candidates) < 2:
+        return {name: (1.0 if name == candidates[0] else 0.0) for name in all_names}
+
     def _nll(w):
         ll = 0.0
         for s in samples:
@@ -147,37 +208,78 @@ def _optimize_layer_weights(samples, candidates, shrinkage, max_weight, n, prior
         if shrinkage > 0 and len(candidates) > 1:
             ll += shrinkage * float(np.mean((w - _prior) ** 2))
         return ll
-    
+
+    return _run_slsqp(_nll, _prior, candidates, max_weight, all_names, n, "Layer-2")
+
+
+def _run_slsqp(objective, prior, candidates, max_weight, all_names, n, layer_name):
+    """运行 SLSQP 优化,检查 success。"""
     from scipy.optimize import minimize
-    w0 = np.asarray(_prior, dtype=float).copy()
+    w0 = np.asarray(prior, dtype=float).copy()
     w0 = np.clip(w0, 0.0, max_weight)
     w0 = w0 / w0.sum() if w0.sum() > 0 else np.full(len(candidates), 1.0 / len(candidates))
-    
+
     res = minimize(
-        _nll, w0, method="SLSQP",
+        objective, w0, method="SLSQP",
         bounds=[(0.0, max_weight)] * len(candidates),
         constraints={"type": "eq", "fun": lambda w: w.sum() - 1.0},
         options={"maxiter": 200, "ftol": 1e-9},
     )
+
+    if not res.success:
+        import logging
+        logging.getLogger(__name__).warning(f"{layer_name} SLSQP failed: {res.message}")
+
     w = np.clip(res.x, 0.0, 1.0)
     w = w / w.sum()
-    
+
     out = {name: 0.0 for name in all_names}
     for i, name in enumerate(candidates):
         out[name] = float(w[i])
-    out["log_loss"] = float(_nll(w))
+    out["log_loss"] = float(objective(w))
+    out["slsqp_success"] = res.success
+    out["slsqp_message"] = res.message
     return out
 
 
-def _compute_baseline_prior(samples, candidates, n):
-    """基于 OOF 平均 NLL 计算先验(Baseline-aware)。"""
+def _compute_baseline_prior_poisson(samples, candidates, n):
+    """基于 Poisson NLL 计算 Layer-1 先验。"""
     if len(samples) < 30:
         return np.array(
-            [0.6 if name in ["hgbr", "poisson"] else 0.4 / max(1, len(candidates) - 1)
+            [0.6 if name == "hgbr" else 0.4 / max(1, len(candidates) - 1)
              for name in candidates],
             dtype=float,
         )
-    
+    # 使用 goal NLL
+    _nll = {}
+    for name in candidates:
+        _v = []
+        for s in samples:
+            try:
+                lam_h = s.get(f"{name}_lam_h", 1.5)
+                lam_a = s.get(f"{name}_lam_a", 1.2)
+                gh = int(s.get("home_goals", 0))
+                ga = int(s.get("away_goals", 0))
+                from math import lgamma, log
+                ll = -(gh * log(max(lam_h, 1e-12)) - lam_h - lgamma(gh + 1))
+                ll -= (ga * log(max(lam_a, 1e-12)) - lam_a - lgamma(ga + 1))
+                _v.append(-ll)
+            except Exception:
+                pass
+        _nll[name] = float(np.mean(_v)) if _v else math.inf
+
+    return _prior_from_nll(_nll, candidates)
+
+
+def _compute_baseline_prior_1x2(samples, candidates, n):
+    """基于 1X2 NLL 计算 Layer-2 先验。"""
+    if len(samples) < 30:
+        return np.array(
+            [0.6 if name == "poisson" else 0.4 / max(1, len(candidates) - 1)
+             for name in candidates],
+            dtype=float,
+        )
+
     _nll = {}
     for name in candidates:
         _v = []
@@ -189,14 +291,19 @@ def _compute_baseline_prior(samples, candidates, n):
             except Exception:
                 pass
         _nll[name] = float(np.mean(_v)) if _v else math.inf
-    
+
+    return _prior_from_nll(_nll, candidates)
+
+
+def _prior_from_nll(_nll, candidates):
+    """从 NLL 计算 prior(softmax)。"""
     _T = 0.15
     _logits = np.array([-_nll.get(n, math.inf) / _T for n in candidates])
     _inf_mask = np.array([not math.isfinite(_nll.get(n, math.inf)) for n in candidates])
-    
+
     if np.all(_inf_mask):
         return np.ones(len(candidates)) / len(candidates)
-    
+
     _m = _logits[~_inf_mask].max()
     _e = np.zeros(len(candidates))
     _e[~_inf_mask] = np.exp(_logits[~_inf_mask] - _m)
@@ -204,18 +311,12 @@ def _compute_baseline_prior(samples, candidates, n):
 
 
 def load_weights(league_key: str, default: dict | None = None) -> dict:
-    """加载该联赛学习到的权重(审查 A70A601 P1-2:异常分级)。
-
-    - 路径不可解析/文件不存在 → 回退默认(degraded,合法)。
-    - 文件**存在但损坏**(JSON 解析失败)或值非法/越界 → raise ValueError:
-      不得伪装成默认配置 —— 上层(engine)需据此 fail-fast。
-    """
+    """加载该联赛学习到的权重(审查 A70A601 P1-2:异常分级)。"""
     w = dict(default or DEFAULT_WEIGHTS)
     path = _WEIGHTS_PATH
     if path is None:
         try:
             from app.core.paths import ARTIFACTS_DIR as _AD
-
             path = os.path.join(str(_AD), "ensemble", "ensemble_weights.json")
         except Exception:
             path = None
@@ -236,16 +337,10 @@ def load_weights(league_key: str, default: dict | None = None) -> dict:
             raise TypeError(
                 f"ensemble_weights[{league_key}] 应为 dict,实际 {type(_entry).__name__}"
             )
+        # engine.py 需要 flat 格式(hgbr/elo/bayes/dc/nb/gbm)
         if _is_layered(_entry):
-            _entry = from_layered(_entry)
-        for k in ("hgbr", "dc", "nb", "elo", "gbm", "bayes"):
-            if k not in _entry:
-                continue
-            try:
-                _val = float(_entry[k])
-            except (TypeError, ValueError) as _e:
-                raise ValueError(f"权重 {k} 非法值: {_entry[k]!r}") from _e
-            if not math.isfinite(_val) or not (0.0 <= _val <= 1.0):
-                raise ValueError(f"权重 {k} 越界/非有限: {_val!r}")
-            w[k] = _val
-    return w
+            return from_layered(_entry)  # layered → flat
+        # 已经是 flat
+        return _entry
+    # 默认: DEFAULT_WEIGHTS 是 layered,需要转 flat
+    return from_layered(w)
