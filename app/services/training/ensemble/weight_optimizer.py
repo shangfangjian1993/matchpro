@@ -1,107 +1,79 @@
-"""τ/φ 拟合 + 权重优化。
+"""分层权重优化入口(严格DAG顺序)。
 
-Layer-1: Poisson Goal NLL (λ fusion)
-Layer-2: 1X2 LogLoss (score distribution,基于 fused λ)
-Layer-3: Outcome GBM (单独学习)
+Stage 1: OOF λ → Layer-1 weights → fused λ
+Stage 2: fused λ → fit τ/φ → Layer-2 weights
+Stage 3: shape + GBM → Layer-3 weights
 """
 from __future__ import annotations
 
-import numpy as np
+import warnings
+
+from . import EnsembleTrainingConfig, DEFAULT_CONFIG
+from .optimizers.dc_parameter import fit_tau
+from .optimizers.nb_parameter import fit_phi
+from .optimizers.outcome_optimizer import optimize_outcome_weights
 
 
-def fit_tau(samples, use_fused_lambda: bool = False):
-    """τ 拟合:在低比分格点上最大化 log-likelihood。
+def optimize(
+    oof_samples: list[dict],
+    tau: float | None = None,
+    phi: float | None = None,
+    config: EnsembleTrainingConfig | None = None,
+) -> tuple[float, float, dict]:
+    """分层权重学习(严格DAG)。
     
-    Args:
-        samples: OOF 样本列表
-        use_fused_lambda: 是否使用 fused λ(而非 HGBR λ)
+    Stage 1: Layer-1 λ weights (Poisson Goal NLL)
+    Stage 2: τ/φ on fused λ → Layer-2 shape weights (1X2 LogLoss)
+    Stage 3: Layer-3 outcome weights (bounded optimization)
     """
-    from app.models.distributions import pois_pmf as _pois_pmf
-    from app.models.dixon_coles.dc import _dc_tau
-
-    best_t, best_ll = 0.0, -np.inf  # P0-1 FIX: 最大化 log-likelihood
-    for t in np.arange(-0.2, 0.201, 0.01):
-        ll = 0.0
-        for s in samples:
-            x, y = s["home_goals"], s["away_goals"]
-            if x > 1 or y > 1:
-                continue
-            # P0-4: 使用 fused λ(如果可用)
-            if use_fused_lambda and "fused_lam_h" in s:
-                lam_h, lam_a = s["fused_lam_h"], s["fused_lam_a"]
-            else:
-                lam_h, lam_a = s["hgbr_lam_h"], s["hgbr_lam_a"]
-            p = (
-                _dc_tau(x, y, lam_h, lam_a, t)
-                * _pois_pmf(lam_h, x)
-                * _pois_pmf(lam_a, y)
-            )
-            ll += np.log(max(1e-12, p))
-        if ll > best_ll:  # P0-1 FIX: 最大化
-            best_t, best_ll = t, ll
-    return float(best_t)
-
-
-def optimize(oof_samples, tau, phi, shrinkage: float = 0.15, use_fused_lambda: bool = False):
-    """分层权重学习。
+    if config is None:
+        config = DEFAULT_CONFIG
     
-    Layer-1: Poisson Goal NLL (λ fusion)
-    Layer-2: 1X2 LogLoss (shape)
-    Layer-3: Outcome GBM (α * shape + (1-α) * gbm)
-    """
-    from app.models.ensemble import fit_nb_phi, learn_weights
-
+    from app.models.ensemble import learn_weights
     from .member_builder import build_member_samples
-
-    # P0-4: τ/φ 在 fused λ 上估计
-    if use_fused_lambda:
-        # 先用 preliminary weights 计算 fused λ
-        preliminary_samples = build_member_samples(oof_samples, tau, phi)
-        phi = fit_nb_phi(preliminary_samples) if phi is None else phi
-        if tau is None:
-            tau = fit_tau(preliminary_samples, use_fused_lambda=True)
     
-    samples = build_member_samples(oof_samples, tau, phi)
-    w = learn_weights(samples, tau, phi, shrinkage=shrinkage)
-    return phi, w, samples
-
-
-def optimize_outcome_weights(oof_samples):
-    """Layer-3: 学习 Outcome GBM 权重。
+    # Stage 1: Layer-1 λ weights
+    # (τ/φ 使用默认值,因为 Layer-1 不依赖它们)
+    samples_stage1 = build_member_samples(oof_samples, tau=0.0, phi=1e9)
+    w_layer1 = learn_weights(samples_stage1, tau=0.0, phi=1e9, shrinkage=config.shrinkage)
     
-    输入:shape_1x2, gbm_1x2, actual
-    输出:shape_weight, gbm_weight
-    """
-    shape_probs = []
-    gbm_probs = []
-    actuals = []
+    # Stage 2: τ/φ on fused λ
+    if tau is None:
+        # 使用 preliminary weights 计算 fused λ
+        tau = fit_tau(samples_stage1, config=config, use_fused_lambda=True)
+    if phi is None:
+        phi = fit_phi(samples_stage1, config=config)
     
-    for s in oof_samples:
-        if "shape_1x2" not in s or "gbm" not in s:
-            continue
-        shape_probs.append(s["shape_1x2"])
-        gbm_probs.append(s["gbm"])
-        actuals.append(s["actual"])
+    # Stage 3: Layer-2 shape weights (使用拟合后的 τ/φ)
+    samples_stage2 = build_member_samples(oof_samples, tau, phi)
+    w_layer2 = learn_weights(samples_stage2, tau, phi, shrinkage=config.shrinkage)
     
-    if not shape_probs:
-        return 1.0, 0.0  # fallback: shape only
+    # Stage 4: Layer-3 outcome weights
+    shape_probs = [s.get("shape_1x2", s.get("poisson", [0.33, 0.34, 0.33])) for s in samples_stage2]
+    gbm_probs_list = [s.get("gbm") for s in samples_stage2 if "gbm" in s]
+    actuals = [s["actual"] for s in samples_stage2]
     
-    shape_probs = np.array(shape_probs)
-    gbm_probs = np.array(gbm_probs)
-    actuals = np.array(actuals)
+    if gbm_probs_list and len(gbm_probs_list) == len(actuals):
+        shape_weight, gbm_weight = optimize_outcome_weights(
+            shape_probs, gbm_probs_list, actuals, config
+        )
+    else:
+        shape_weight, gbm_weight = 1.0, 0.0
     
-    best_alpha = 1.0
-    best_ll = np.inf
-    
-    for alpha in np.arange(0.0, 1.01, 0.05):
-        # 融合概率
-        p = alpha * shape_probs + (1 - alpha) * gbm_probs
-        p = np.clip(p, 1e-12, None)
-        p = p / p.sum(axis=1, keepdims=True)
-        # LogLoss
-        ll = -np.mean(np.log(p[np.arange(len(actuals)), actuals]))
-        if ll < best_ll:
-            best_ll = ll
-            best_alpha = alpha
-    
-    return float(best_alpha), float(1.0 - best_alpha)
+    # 组合为 flat 格式(兼容旧接口)
+    out = {
+        "hgbr": w_layer1.get("hgbr", 0.0),
+        "elo": w_layer1.get("elo", 0.0),
+        "bayes": w_layer1.get("bayes", 0.0),
+        "dc": w_layer2.get("dc", 0.0),
+        "nb": w_layer2.get("nb", 0.0),
+        "gbm": gbm_weight,
+        "log_loss": w_layer2.get("log_loss", 0.0),
+        "n": len(samples_stage2),
+        "shrinkage": config.shrinkage,
+        "tau": tau,
+        "phi": phi,
+        "shape_weight": shape_weight,
+        "gbm_weight": gbm_weight,
+    }
+    return tau, phi, out

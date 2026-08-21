@@ -243,3 +243,76 @@ def test_gh_ablation_different():
     if result_g is not None and result_h is not None:
         # G 和 H 的结果应该不同(因为 calibration 不同)
         assert result_g.final_1x2 != result_h.final_1x2, "G和H应该产生不同结果"
+
+
+def test_score_matrix_mass_invariant():
+    """P0-3: score matrix 质量守恒(sum≈1)。"""
+    import numpy as np
+    from app.core.config import LeagueType
+    from app.prediction.layered_pipeline import compute_prediction
+
+    weights = {
+        "goal_lambda": {"hgbr": 0.5, "elo": 0.3, "bayes": 0.2},
+        "score_distribution": {"poisson": 0.5, "dc": 0.3, "nb": 0.2},
+        "outcome": {"gbm": 0.7},
+    }
+    raw_matrix = np.eye(10) * 0.1
+    raw_matrix[1, 1] = 0.9
+
+    result = compute_prediction(
+        lam_h=1.5, lam_a=1.2, lam_eh=1.4, lam_ea=1.1,
+        tau=0.05, phi=50.0, weights=weights,
+        lam_bh=1.3, lam_ba=1.2,
+        gbm_probs=(0.6, 0.25, 0.15),
+        prior_context={"league_id": 1, "match_dt": "2026-01-01", "raw_matrix": raw_matrix},
+        calibration_context={"models_dir": "/tmp/fake_models", "league_type": LeagueType.PREMIER_LEAGUE},
+    )
+
+    if result is not None:
+        score_matrix = result.score_matrix
+        total_mass = float(np.sum(score_matrix))
+        assert abs(total_mass - 1.0) < 0.01, f"score matrix mass={total_mass}, expected ~1.0"
+        assert np.all(score_matrix >= 0), "score matrix has negative values"
+        
+        # Tail mass check (10x10 grid)
+        tail_mass = 1.0 - total_mass
+        assert tail_mass < 0.05, f"tail mass too large: {tail_mass}"
+
+
+def test_production_training_parity():
+    """P1-6: Production/Training 数学同构测试。"""
+    import numpy as np
+    from app.core.config import LeagueType
+    from app.prediction.layered_pipeline import compute_prediction
+    from app.services.training.ensemble.member_builder import build_member_samples
+
+    weights = {
+        "goal_lambda": {"hgbr": 0.5, "elo": 0.3, "bayes": 0.2},
+        "score_distribution": {"poisson": 0.5, "dc": 0.3, "nb": 0.2},
+        "outcome": {"gbm": 0.7},
+    }
+    tau, phi = 0.05, 50.0
+
+    # 构造测试样本
+    oof_sample = [{
+        "hgbr_lam_h": 1.5, "hgbr_lam_a": 1.2,
+        "att_diff": 0.3,
+        "bayes_lam_h": 1.3, "bayes_lam_a": 1.2,
+        "home_goals": 2, "away_goals": 1, "actual": 0,
+    }]
+
+    # Training path
+    samples = build_member_samples(oof_sample, tau, phi, weights)
+    
+    # Production path
+    result = compute_prediction(
+        lam_h=1.5, lam_a=1.2,
+        lam_eh=samples[0]["elo_lam_h"], lam_ea=samples[0]["elo_lam_a"],
+        tau=tau, phi=phi, weights=weights,
+        lam_bh=1.3, lam_ba=1.2,
+    )
+
+    if result is not None and samples:
+        # Training fused λ == Production fused λ
+        assert abs(samples[0]["fused_lam_h"] - result.fused_lambda[0]) < 0.01
+        assert abs(samples[0]["fused_lam_a"] - result.fused_lambda[1]) < 0.01

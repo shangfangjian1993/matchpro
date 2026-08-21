@@ -24,13 +24,14 @@ class _Old:
     """模拟 ORM Match 行属性。"""
 
     def __init__(self):
+        self.id = 1
         self.home_goals = 2
         self.away_goals = 1
         self.home_ht_goals = 1
         self.away_ht_goals = 0
         self.source = None
-        self.sources_json = None
-        self.source_scores_json = None
+        self.sources_json = "[]"
+        self.source_scores_json = "{}"
         self.reconciliation = None
         self.last_reconciled_at = None
         self.source_consensus = None

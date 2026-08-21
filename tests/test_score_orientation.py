@@ -13,6 +13,7 @@ import pytest
 
 class _Old:
     def __init__(self, hg=2, ag=1, hh=1, ah=0):
+        self.id = 1
         self.home_goals = hg
         self.away_goals = ag
         self.home_ht_goals = hh

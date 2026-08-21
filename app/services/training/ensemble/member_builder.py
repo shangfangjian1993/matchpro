@@ -1,19 +1,15 @@
-"""成员概率构建:OOF 样本 → 各成员概率 + λ(用于分层学习)。
+"""成员概率构建:OOF 样本 → 各成员概率 + λ + shape_1x2。
 
 输出同时包含:
 - λ 值(用于 Layer-1 Poisson NLL 优化)
 - 1X2 概率(用于 Layer-2 LogLoss 优化)
+- shape_1x2(用于 Layer-3 outcome optimization)
 """
 from __future__ import annotations
 
 
 def build_member_samples(oof_samples, tau, phi, weights: dict | None = None):
-    """从 OOF 样本构建成员概率样本。
-    
-    输出字段:
-    - hgbr_lam_h/a, elo_lam_h/a, bayes_lam_h/a: λ 值(Layer-1)
-    - hgbr, poisson, dc, nb, elo, bayes: 1X2 概率(Layer-2)
-    """
+    """从 OOF 样本构建成员概率样本。"""
     from app.models.ensemble import dc_probs, elo_goal_lambda, match_probs, nb_probs
 
     if weights:
@@ -47,6 +43,18 @@ def build_member_samples(oof_samples, tau, phi, weights: dict | None = None):
             else:
                 fh, fa = s["hgbr_lam_h"], s["hgbr_lam_a"]
 
+        # Shape probabilities (基于 fused λ)
+        pois_p = match_probs(fh, fa)
+        dc_p = dc_probs(fh, fa, tau)
+        nb_p = nb_probs(fh, fa, phi)
+        
+        # Shape ensemble (equal weight preliminary)
+        shape_1x2 = [
+            (pois_p[0] + dc_p[0] + nb_p[0]) / 3,
+            (pois_p[1] + dc_p[1] + nb_p[1]) / 3,
+            (pois_p[2] + dc_p[2] + nb_p[2]) / 3,
+        ]
+
         rec = {
             # λ 值(Layer-1)
             "hgbr_lam_h": s["hgbr_lam_h"],
@@ -55,12 +63,16 @@ def build_member_samples(oof_samples, tau, phi, weights: dict | None = None):
             "elo_lam_a": lam_ea,
             "bayes_lam_h": bh,
             "bayes_lam_a": ba,
+            "fused_lam_h": fh,
+            "fused_lam_a": fa,
             # 1X2 概率(Layer-2)
             "hgbr": list(match_probs(s["hgbr_lam_h"], s["hgbr_lam_a"])),
-            "poisson": list(match_probs(fh, fa)),
-            "dc": list(dc_probs(fh, fa, tau)),
-            "nb": list(nb_probs(fh, fa, phi)),
+            "poisson": list(pois_p),
+            "dc": list(dc_p),
+            "nb": list(nb_p),
             "elo": list(match_probs(lam_eh, lam_ea)),
+            # Shape ensemble (Layer-3)
+            "shape_1x2": shape_1x2,
             # 实际值
             "actual": s["actual"],
             "home_goals": s.get("home_goals", 0),
