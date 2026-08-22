@@ -553,7 +553,7 @@ def import_recent(
         d0["results"][0]["event_date"].replace("Z", "+00:00")
     )
     last_season = latest.year if latest.month >= 8 else latest.year - 1
-    cutoff = _dt.datetime(last_season - seasons + 1, 8, 1, tzinfo=_dt.timezone.utc)
+    cutoff = _dt.datetime(last_season - seasons + 1, 8, 1)  # tz-naive, matches event dates
     total = d0.get("count", 0)
 
     rows, ofs = [], 0

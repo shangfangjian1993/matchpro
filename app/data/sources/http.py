@@ -10,11 +10,22 @@ UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (football-prediction-pi
 
 def http_get(url: str, headers: dict | None = None, timeout: int = 40) -> bytes:
     req = urllib.request.Request(url, headers={"User-Agent": UA, **(headers or {})})
-    resp = urllib.request.urlopen(req, timeout=timeout)
+    try:
+        resp = urllib.request.urlopen(req, timeout=timeout)
+    except urllib.error.HTTPError as e:
+        if e.code in (300, 301, 302, 303, 307, 308):
+            # Redirect / Multiple Choices - season data not available yet
+            raise SeasonNotAvailable(f"HTTP {e.code}: season data not available: {url}")
+        raise
     raw = resp.read()
     if resp.headers.get("Content-Encoding") == "gzip" or raw[:2] == b"\x1f\x8b":
         raw = gzip.decompress(raw)
     return raw
+
+
+class SeasonNotAvailable(Exception):
+    """Season data not available yet (HTTP 300/301/302 from data source)."""
+    pass
 
 
 def http_get_json(url: str, headers: dict | None = None, timeout: int = 40) -> dict:

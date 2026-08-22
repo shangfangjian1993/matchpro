@@ -18,6 +18,7 @@ import time
 
 from app.data import sources
 from app.data.canonical import cleanse, ingest
+from app.data.sources.http import SeasonNotAvailable
 from app.data.canonical.config import (
     LEAGUE_MAP_FDCO,
     LEAGUE_MAP_FDO,
@@ -85,6 +86,10 @@ def run_history(seasons: list[int], league_codes: list[str]) -> dict:
             lt = LEAGUE_MAP_FDCO[league]
             try:
                 rows = sources.fetch_fdco(season_code, league)
+            except SeasonNotAvailable as e:
+                logger.info("赛季未就绪 %s/%s: %s", season_code, league, e)
+                total["errors"].append(f"{season_code}/{league}: 赛季数据未就绪(HTTP 300)")
+                continue
             except Exception as e:
                 logger.error("下载失败 %s/%s: %s", season_code, league, e)
                 total["errors"].append(f"{season_code}/{league}: {e}")
