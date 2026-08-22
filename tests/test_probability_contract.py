@@ -385,7 +385,7 @@ def test_gbm_weight_used_in_fusion():
     
     shape_1x2 = (0.5, 0.3, 0.2)
     gbm_1x2 = (0.6, 0.25, 0.15)
-    weights = {"shape_weight": 0.7, "gbm_weight": 0.3}
+    weights = {"shape": 0.7, "gbm": 0.3}
     
     result = fuse_goal_outcome(shape_1x2, gbm_1x2, weights)
     

@@ -129,12 +129,19 @@ class ProductionArtifact:
             raise ValueError(f"phi={self.phi} must be finite and > 0")
         
         # P0-2: GBM weight > 0 强制要求 model+hash 存在
+        # P1: 双向 contract - gbm==0 时 path/hash 必须为空
         gbm_weight = float(self.outcome["gbm"])
         if gbm_weight > 0:
             if not self.gbm_model_path:
                 raise ValueError(f"GBM weight={gbm_weight} > 0 but gbm_model_path is empty")
             if not self.gbm_model_hash:
                 raise ValueError(f"GBM weight={gbm_weight} > 0 but gbm_model_hash is empty")
+        else:
+            # gbm_weight == 0 → path 和 hash 必须为空
+            if self.gbm_model_path:
+                raise ValueError(f"GBM weight=0 but gbm_model_path='{self.gbm_model_path}' (must be empty)")
+            if self.gbm_model_hash:
+                raise ValueError(f"GBM weight=0 but gbm_model_hash='{self.gbm_model_hash}' (must be empty)")
     
     def to_dict(self) -> dict:
         """序列化为 dict(P1-6: 全精度,无 round/renormalize)。"""
@@ -150,6 +157,12 @@ class ProductionArtifact:
             "calibration": self.calibration.__dict__ if self.calibration else None,
             "prior": self.prior.__dict__ if self.prior else None,
             "lineage": self.lineage.__dict__,
+            # P1-10: 显式 candidate contract
+            "enabled_members": {
+                "goal_lambda": list(self.goal_lambda.keys()),
+                "score_distribution": list(self.score_distribution.keys()),
+                "outcome": list(self.outcome.keys()),
+            },
         }
     
     def to_json(self) -> str:
@@ -189,7 +202,7 @@ class ProductionArtifact:
         return cls.from_dict(json.loads(json_str))
     
     def model_hash(self) -> str:
-        """模型内容哈希(不含 created_at)。"""
+        """模型内容哈希(不含 created_at)。P1-6: 包含完整 lineage 字段。"""
         content = json.dumps({
             "league": self.league,
             "goal_lambda": {k: float(v) for k, v in self.goal_lambda.items()},
@@ -200,9 +213,18 @@ class ProductionArtifact:
             "gbm_model_hash": self.gbm_model_hash,
             "calibration": self.calibration.__dict__ if self.calibration else None,
             "prior": self.prior.__dict__ if self.prior else None,
+            # LineageInfo fields (P1-6: 全部包含)
+            "model_version": self.lineage.model_version,
+            "feature_version": self.lineage.feature_version,
             "training_cutoff": self.lineage.training_cutoff,
+            "oof_method": self.lineage.oof_method,
             "oof_segments": self.lineage.oof_segments,
+            "oof_n": self.lineage.oof_n,
             "shrinkage": self.lineage.shrinkage,
+            "training_data_hash": self.lineage.training_data_hash,
+            "calibration_hash": self.lineage.calibration_hash,
+            "prior_hash": self.lineage.prior_hash,
+            "gbm_hash": self.lineage.gbm_hash,
         }, sort_keys=True)
         return hashlib.sha256(content.encode()).hexdigest()[:16]
     

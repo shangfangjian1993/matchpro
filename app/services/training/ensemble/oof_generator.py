@@ -110,6 +110,11 @@ def generate(lt, league, matches, verbose=True):
                     gprob = list(_gbm.predict_proba(feats[_gc].iloc[[-2]])[0])
                 except Exception:
                     gprob = None
+                # P0: GBM available but inference failed for this sample → skip
+                if gprob is None:
+                    import logging as _lg
+                    _lg.getLogger(__name__).debug("OOF GBM inference failed for sample, skipping")
+                    continue
             oof_samples.append(
                 {
                     "hgbr_lam_h": lam_h,

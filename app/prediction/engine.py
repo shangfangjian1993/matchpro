@@ -152,14 +152,14 @@ class PredictionEngine:
                     f"ProductionArtifact not found for {league_type.value}"
                 )
             _w = {
-                "hgbr": _artifact.goal_lambda.get("hgbr", 0.0),
-                "elo": _artifact.goal_lambda.get("elo", 0.0),
-                "bayes": _artifact.goal_lambda.get("bayes", 0.0),
-                "poisson": _artifact.score_distribution.get("poisson", 0.0),
-                "dc": _artifact.score_distribution.get("dc", 0.0),
-                "nb": _artifact.score_distribution.get("nb", 0.0),
-                "shape": _artifact.outcome.get("shape", 1.0),
-                "gbm": _artifact.outcome.get("gbm", 0.0),
+                "hgbr": _artifact.goal_lambda["hgbr"],
+                "elo": _artifact.goal_lambda["elo"],
+                "bayes": _artifact.goal_lambda["bayes"],
+                "poisson": _artifact.score_distribution["poisson"],
+                "dc": _artifact.score_distribution["dc"],
+                "nb": _artifact.score_distribution["nb"],
+                "shape": _artifact.outcome["shape"],
+                "gbm": _artifact.outcome["gbm"],
             }
             
             # 权重结构校验(P0-1:权重损坏不得静默)
@@ -228,19 +228,15 @@ class PredictionEngine:
 
             # P1-Degraded:GBM 可选成员
             _gbm_probs = None
-            _gbm = load_gbm(league_type, self.models_dir)
+            _gbm, _gbm_path = load_gbm(league_type, self.models_dir)
             
             # P0-3: GBM hash 用 file bytes (非 str(model))
+            # P0 FIX: 使用 load_gbm 返回的路径,确保 hash 校验与加载同一文件
             if _gbm is not None and _artifact.gbm_model_hash:
                 import hashlib
                 import time
 
-                from app.core.paths import ARTIFACTS_DIR as _GBM_ARTIFACTS_DIR
-                gbm_path = os.path.join(
-                    str(_GBM_ARTIFACTS_DIR),
-                    league_type.value,
-                    "gbm.pkl"
-                )
+                gbm_path = _gbm_path
                 # P1: 区分 transient IO error (重试) 与 corruption (P0)
                 max_retries = 3
                 actual_hash = None
@@ -276,10 +272,21 @@ class PredictionEngine:
                 try:
                     _gbm_probs = gbm_probs(_gbm, _pred_df, _m)
                 except Exception as _ge:
+                    # P0: GBM weight > 0 但推理失败 → P0 (不降级)
+                    if _w.get("gbm", 0) > 0:
+                        raise CorePredictionError(
+                            "GBM_INFERENCE_FAILURE",
+                            f"GBM inference failed for required model: {_ge}"
+                        ) from _ge
                     _degraded_components.append("gbm")
                     _failure_codes.append("GBM_INFERENCE_FAILURE")
                     logger.warning("GBM 推理失败(降级): %s", _ge)
                 if _gbm_probs is None:
+                    if _w.get("gbm", 0) > 0:
+                        raise CorePredictionError(
+                            "GBM_INFERENCE_FAILURE",
+                            "GBM inference returned None for required model"
+                        )
                     _degraded = True
             try:
                 home_win, draw, away_win = fuse(_goal_probs, _gbm_probs, _w)

@@ -14,23 +14,26 @@ _GBM_CACHE = ArtifactCache(8)
 
 
 def load_gbm(league_type, models_dir: str):
-    """加载 GBM 分类成员(统一 ArtifactCache);不存在返回 None。"""
+    """加载 GBM 分类成员(统一 ArtifactCache);不存在返回 None。
+    
+    P0 FIX: 返回 (model, path) 元组,确保 hash 校验与加载同一文件。
+    """
     path = os.path.join(
         models_dir, league_type.value, "gbm.pkl"
     )
     if not os.path.exists(path):
-        return None
+        return None, path
     try:
         cached = _GBM_CACHE.get(path)
         if cached is not None:
-            return cached
+            return cached, path
         from app.models.ensemble.gbm import GbmClassifier
 
         gbm = GbmClassifier.load(path)
         _GBM_CACHE.put(path, gbm)
-        return gbm
+        return gbm, path
     except Exception:
-        return None
+        return None, path
 
 
 def gbm_probs(gbm, pred_df, model) -> tuple | None:
