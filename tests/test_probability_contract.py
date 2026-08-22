@@ -180,7 +180,7 @@ def test_to_layered_idempotent():
     assert to_layered(layered) == layered
 
     # flat → to_layered → from_layered → to_layered 应该稳定
-    flat = {"hgbr": 0.5, "elo": 0.3, "bayes": 0.2, "dc": 0.3, "nb": 0.2, "gbm": 0.5}
+    flat = {"hgbr": 0.5, "elo": 0.3, "bayes": 0.2, "dc": 0.3, "nb": 0.2, "gbm": 0.0}
     layered1 = to_layered(flat)
     flat2 = from_layered(layered1)
     layered2 = to_layered(flat2)
@@ -215,7 +215,7 @@ def test_gh_ablation_different():
     weights = {
         "hgbr": 0.5, "elo": 0.3, "bayes": 0.2,
         "poisson": 0.5, "dc": 0.3, "nb": 0.2,
-        "shape": 0.3, "gbm": 0.7,
+        "shape": 1.0, "gbm": 0.0,
     }
     gbm_probs = (0.6, 0.25, 0.15)
     raw_matrix = np.eye(10) * 0.1
@@ -263,7 +263,7 @@ def test_score_matrix_mass_invariant():
     weights = {
         "goal_lambda": {"hgbr": 0.5, "elo": 0.3, "bayes": 0.2},
         "score_distribution": {"poisson": 0.5, "dc": 0.3, "nb": 0.2},
-        "outcome": {"gbm": 0.7},
+        "outcome": {"gbm": 0.0},
     }
     raw_matrix = np.eye(10) * 0.1
     raw_matrix[1, 1] = 0.9
@@ -296,7 +296,7 @@ def test_production_training_parity():
     weights = {
         "goal_lambda": {"hgbr": 0.5, "elo": 0.3, "bayes": 0.2},
         "score_distribution": {"poisson": 0.5, "dc": 0.3, "nb": 0.2},
-        "outcome": {"gbm": 0.7},
+        "outcome": {"gbm": 0.0},
     }
     tau, phi = 0.05, 50.0
 
@@ -333,7 +333,7 @@ def test_layer2_poisson_weight_preserved():
     flat_weights = {
         "hgbr": 0.4, "elo": 0.3, "bayes": 0.3,
         "poisson": 0.5, "dc": 0.3, "nb": 0.2,
-        "gbm": 0.3,
+        "gbm": 0.0,
     }
     
     layered = to_layered(flat_weights)

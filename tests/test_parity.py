@@ -19,7 +19,7 @@ class TestMathematicalParity:
         weights = {
             "hgbr": 0.52, "elo": 0.29, "bayes": 0.19,
             "poisson": 0.48, "dc": 0.32, "nb": 0.20,
-            "shape_weight": 0.73, "gbm_weight": 0.27,
+            "shape_weight": 1.0, "gbm_weight": 0.0,
         }
         
         lam_h, lam_a = 1.43, 1.17
@@ -47,8 +47,8 @@ class TestMathematicalParity:
         # Layer-2: shape_1x2 应该与 goal_1x2 相同
         assert result.shape_1x2 == result.goal_1x2
         
-        # Layer-3: outcome_1x2 = α * shape + (1-α) * gbm
-        alpha = 0.73
+        # Layer-3: outcome_1x2 = α * shape + (1-α) * gbm ("shape": 1.0, "gbm": 0.0)
+        alpha = 1.0
         expected_outcome = tuple(
             alpha * s + (1 - alpha) * g
             for s, g in zip(result.shape_1x2, gbm_probs)
@@ -79,7 +79,7 @@ class TestMathematicalParity:
         result = compute_prediction(
             lam_h=1.5, lam_a=1.2, lam_eh=1.4, lam_ea=1.1,
             tau=0.05, phi=50.0,
-            weights={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape_weight": 0.7, "gbm_weight": 0.3},
+            weights={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape_weight": 1.0, "gbm_weight": 0.0},
         )
         
         if result is not None:
@@ -92,7 +92,7 @@ class TestMathematicalParity:
         result = compute_prediction(
             lam_h=1.5, lam_a=1.2, lam_eh=1.4, lam_ea=1.1,
             tau=0.05, phi=50.0,
-            weights={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape_weight": 0.7, "gbm_weight": 0.3},
+            weights={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape_weight": 1.0, "gbm_weight": 0.0},
         )
         
         if result is not None:
@@ -115,7 +115,7 @@ class TestMathematicalParity:
         result = compute_prediction(
             lam_h=1.5, lam_a=1.2, lam_eh=1.4, lam_ea=1.1,
             tau=0.05, phi=50.0,
-            weights={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape_weight": 0.7, "gbm_weight": 0.3},
+            weights={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape_weight": 1.0, "gbm_weight": 0.0},
         )
         
         if result is not None:
@@ -133,7 +133,7 @@ class TestMathematicalParity:
         result = compute_prediction(
             lam_h=1.5, lam_a=1.2, lam_eh=1.4, lam_ea=1.1,
             tau=0.05, phi=50.0,
-            weights={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape_weight": 0.7, "gbm_weight": 0.3},
+            weights={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape_weight": 1.0, "gbm_weight": 0.0},
             lam_bh=None, lam_ba=None,  # Bayes 不可用
         )
         

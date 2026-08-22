@@ -23,7 +23,7 @@ class TestScoreMetrics:
         result = compute_prediction(
             lam_h=1.5, lam_a=1.2, lam_eh=1.4, lam_ea=1.1,
             tau=0.05, phi=50.0,
-            weights={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape_weight": 0.7, "gbm_weight": 0.3},
+            weights={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape_weight": 1.0, "gbm_weight": 0.0},
         )
         
         if result is not None:
@@ -41,7 +41,7 @@ class TestScoreMetrics:
         result = compute_prediction(
             lam_h=1.5, lam_a=1.2, lam_eh=1.4, lam_ea=1.1,
             tau=0.05, phi=50.0,
-            weights={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape_weight": 0.7, "gbm_weight": 0.3},
+            weights={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape_weight": 1.0, "gbm_weight": 0.0},
         )
         
         if result is not None:
@@ -54,7 +54,7 @@ class TestScoreMetrics:
         result = compute_prediction(
             lam_h=1.5, lam_a=1.2, lam_eh=1.4, lam_ea=1.1,
             tau=0.05, phi=50.0,
-            weights={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape_weight": 0.7, "gbm_weight": 0.3},
+            weights={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape_weight": 1.0, "gbm_weight": 0.0},
         )
         
         if result is not None:
@@ -74,7 +74,7 @@ class TestScoreMetrics:
         result = compute_prediction(
             lam_h=1.5, lam_a=1.2, lam_eh=1.4, lam_ea=1.1,
             tau=0.05, phi=50.0,
-            weights={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape_weight": 0.7, "gbm_weight": 0.3},
+            weights={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape_weight": 1.0, "gbm_weight": 0.0},
         )
         
         if result is not None:

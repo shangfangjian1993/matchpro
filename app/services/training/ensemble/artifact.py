@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 
+
+
 @dataclass(frozen=True)
 class CalibrationArtifact:
     """Calibration 子-artifact(包含真实 learned state)。"""
@@ -56,7 +58,7 @@ class ProductionArtifact:
     P0-2: 使用 typed schema (GoalLambdaWeights/ScoreDistributionWeights/OutcomeWeights)。
     """
     league: str  # "premier_league", "la_liga", etc.
-    goal_lambda: dict  # P0-2: typed via __post_init__ validation
+    goal_lambda: dict  # P1-5: typed via __post_init__ validation
     score_distribution: dict
     outcome: dict
     tau: float
@@ -68,16 +70,16 @@ class ProductionArtifact:
     lineage: LineageInfo = field(default_factory=LineageInfo)
     
     def __post_init__(self):
-        """验证权重合法性 (finite, 0<=w<=1, sum=1)。P1-2: 缺失 key → fail。"""
+        """验证权重合法性 (finite, 0<=w<=1, sum=1)。P1-5: strict key validation。"""
         import math
         
-        # Layer-1: require mandatory keys, allow extras
-        mandatory_gl = {"hgbr", "elo", "bayes"}
-        missing_gl = mandatory_gl - set(self.goal_lambda.keys())
-        if missing_gl:
-            raise ValueError(f"Layer-1 missing mandatory keys: {missing_gl}")
+        # Layer-1: strict key validation (exact match, no extras)
+        expected_gl = {"hgbr", "elo", "bayes"}
+        actual_gl = set(self.goal_lambda.keys())
+        if actual_gl != expected_gl:
+            raise ValueError(f"Layer-1 keys mismatch: expected {expected_gl}, got {actual_gl}")
         gl_sum = 0.0
-        for k in mandatory_gl:
+        for k in expected_gl:
             v = float(self.goal_lambda[k])
             if not math.isfinite(v):
                 raise ValueError(f"Layer-1 weight {k}={v} is not finite")
@@ -87,13 +89,13 @@ class ProductionArtifact:
         if abs(gl_sum - 1.0) > 1e-9:
             raise ValueError(f"Layer-1 weights sum={gl_sum:.4f}, expected 1.0")
         
-        # Layer-2: require mandatory keys, allow extras
-        mandatory_sd = {"poisson", "dc", "nb"}
-        missing_sd = mandatory_sd - set(self.score_distribution.keys())
-        if missing_sd:
-            raise ValueError(f"Layer-2 missing mandatory keys: {missing_sd}")
+        # Layer-2: strict key validation
+        expected_sd = {"poisson", "dc", "nb"}
+        actual_sd = set(self.score_distribution.keys())
+        if actual_sd != expected_sd:
+            raise ValueError(f"Layer-2 keys mismatch: expected {expected_sd}, got {actual_sd}")
         sd_sum = 0.0
-        for k in mandatory_sd:
+        for k in expected_sd:
             v = float(self.score_distribution[k])
             if not math.isfinite(v):
                 raise ValueError(f"Layer-2 weight {k}={v} is not finite")
@@ -103,11 +105,11 @@ class ProductionArtifact:
         if abs(sd_sum - 1.0) > 1e-9:
             raise ValueError(f"Layer-2 weights sum={sd_sum:.4f}, expected 1.0")
         
-        # Layer-3: require mandatory keys
-        mandatory_oc = {"shape", "gbm"}
-        missing_oc = mandatory_oc - set(self.outcome.keys())
-        if missing_oc:
-            raise ValueError(f"Layer-3 missing mandatory keys: {missing_oc}")
+        # Layer-3: strict key validation
+        expected_oc = {"shape", "gbm"}
+        actual_oc = set(self.outcome.keys())
+        if actual_oc != expected_oc:
+            raise ValueError(f"Layer-3 keys mismatch: expected {expected_oc}, got {actual_oc}")
         shape = float(self.outcome["shape"])
         gbm = float(self.outcome["gbm"])
         if not math.isfinite(shape) or not math.isfinite(gbm):
@@ -125,6 +127,14 @@ class ProductionArtifact:
         # Validate phi (Negative Binomial overdispersion)
         if not math.isfinite(self.phi) or self.phi <= 0:
             raise ValueError(f"phi={self.phi} must be finite and > 0")
+        
+        # P0-2: GBM weight > 0 强制要求 model+hash 存在
+        gbm_weight = float(self.outcome["gbm"])
+        if gbm_weight > 0:
+            if not self.gbm_model_path:
+                raise ValueError(f"GBM weight={gbm_weight} > 0 but gbm_model_path is empty")
+            if not self.gbm_model_hash:
+                raise ValueError(f"GBM weight={gbm_weight} > 0 but gbm_model_hash is empty")
     
     def to_dict(self) -> dict:
         """序列化为 dict(P1-6: 全精度,无 round/renormalize)。"""
@@ -182,9 +192,9 @@ class ProductionArtifact:
         """模型内容哈希(不含 created_at)。"""
         content = json.dumps({
             "league": self.league,
-            "goal_lambda": self.goal_lambda,
-            "score_distribution": self.score_distribution,
-            "outcome": self.outcome,
+            "goal_lambda": {k: float(v) for k, v in self.goal_lambda.items()},
+            "score_distribution": {k: float(v) for k, v in self.score_distribution.items()},
+            "outcome": {k: float(v) for k, v in self.outcome.items()},
             "tau": self.tau,
             "phi": self.phi,
             "gbm_model_hash": self.gbm_model_hash,
@@ -221,9 +231,13 @@ def create_production_artifact(
     calibration: CalibrationArtifact | None = None,
     prior: PriorArtifact | None = None,
     oof_segments: int = 6,
+    training_data_hash: str = "",
+    calibration_hash: str = "",
+    prior_hash: str = "",
 ) -> ProductionArtifact:
     """从训练输出创建 ProductionArtifact。
 
+    P1-4: lineage hashes 由调用方注入(training_data/calibration/prior)。
     P1-5: training_cutoff 由调用方传入(真实数据截止时间)。
     P1-2: oof_segments 由调用方传入(真实 K_SEG)。
     """
@@ -262,5 +276,9 @@ def create_production_artifact(
             oof_n=oof_n,
             shrinkage=shrinkage,
             created_at=datetime.now(timezone.utc).isoformat(),
+            training_data_hash=training_data_hash,  # P1-4
+            calibration_hash=calibration_hash,
+            prior_hash=prior_hash,
+            gbm_hash=gbm_model_hash,
         ),
     )

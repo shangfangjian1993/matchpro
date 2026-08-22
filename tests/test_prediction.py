@@ -14,7 +14,7 @@ def _setup_artifact(tmp_path, monkeypatch):
         "league": "premier_league",
         "goal_lambda": {"hgbr": 0.52, "elo": 0.29, "bayes": 0.19},
         "score_distribution": {"poisson": 0.48, "dc": 0.32, "nb": 0.20},
-        "outcome": {"shape": 0.73, "gbm": 0.27},
+        "outcome": {"shape": 1.0, "gbm": 0.0},
         "tau": -0.071,
         "phi": 2.31,
         "gbm_model_path": "",

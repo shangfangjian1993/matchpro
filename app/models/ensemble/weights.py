@@ -236,7 +236,8 @@ def optimize_goal_lambda_weights(
     输出: {hgbr, elo, bayes, poisson, dc, nb} (后三个为0)
     """
     candidates = ["hgbr", "elo", "bayes"]
-    present = [n for n in candidates if any(f"{n}_lam_h" in s for s in samples)]
+    # P0-3 FIX: all candidates must exist in EVERY sample
+    present = [n for n in candidates if all(f"{n}_lam_h" in s and f"{n}_lam_a" in s for s in samples)]
     
     if not present:
         return {name: 1.0 if name == "hgbr" else 0.0 for name in ["hgbr", "elo", "bayes", "poisson", "dc", "nb"]}
@@ -255,8 +256,8 @@ def optimize_goal_lambda_weights(
     def _nll(w):
         ll = 0.0
         for s in samples:
-            lam_h = sum(w[i] * s.get(f"{name}_lam_h", 1.5) for i, name in enumerate(present))
-            lam_a = sum(w[i] * s.get(f"{name}_lam_a", 1.2) for i, name in enumerate(present))
+            lam_h = sum(w[i] * s[f"{name}_lam_h"] for i, name in enumerate(present))
+            lam_a = sum(w[i] * s[f"{name}_lam_a"] for i, name in enumerate(present))
             from math import lgamma, log
             gh = int(s.get("home_goals", 0))
             ga = int(s.get("away_goals", 0))
@@ -283,7 +284,8 @@ def optimize_score_distribution_weights(
     输出: {hgbr, elo, bayes, poisson, dc, nb} (前三个为0)
     """
     candidates = ["poisson", "dc", "nb"]
-    present = [n for n in candidates if any(n in s for s in samples)]
+    # P0-3 FIX: all candidates must exist in EVERY sample
+    present = [n for n in candidates if all(n in s for s in samples)]
     
     if not present:
         return {name: 1.0 if name == "poisson" else 0.0 for name in ["hgbr", "elo", "bayes", "poisson", "dc", "nb"]}
@@ -301,12 +303,11 @@ def optimize_score_distribution_weights(
     
     def _nll(w):
         ll = 0.0
+        # P0-3 FIX: all candidates must exist in every sample
         for s in samples:
-            p = np.zeros(3)
-            for i, name in enumerate(present):
-                if name not in s:
-                    continue
-                p += w[i] * np.asarray(s[name])
+            if not all(name in s for name in present):
+                return math.inf  # Fail if any sample incomplete
+            p = sum(w[i] * np.asarray(s[name]) for i, name in enumerate(present))
             p = np.clip(p, 1e-12, None)
             p = p / p.sum()
             ll -= math.log(p[s["actual"]])

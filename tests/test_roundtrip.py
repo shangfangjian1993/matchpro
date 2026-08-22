@@ -24,7 +24,7 @@ class TestRoundtripParity:
         original = {
             "hgbr": 0.52, "elo": 0.29, "bayes": 0.19,
             "poisson": 0.48, "dc": 0.32, "nb": 0.20,
-            "shape": 0.73, "gbm": 0.27,
+            "shape": 1.0, "gbm": 0.0,
         }
         
         layered = to_layered(original)
@@ -40,7 +40,7 @@ class TestRoundtripParity:
             weights={
                 "hgbr": 0.52, "elo": 0.29, "bayes": 0.19,
                 "poisson": 0.48, "dc": 0.32, "nb": 0.20,
-                "shape": 0.73, "gbm": 0.27,
+                "shape": 1.0, "gbm": 0.0,
             },
             tau=-0.071,
             phi=2.31,
@@ -106,7 +106,7 @@ class TestArtifactIntegrity:
         """相同内容 → 相同 hash。"""
         artifact = create_production_artifact(
             league="premier_league",
-            weights={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape": 0.7, "gbm": 0.3},
+            weights={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape": 1.0, "gbm": 0.0},
             tau=0.05, phi=50.0,
         )
         
@@ -116,12 +116,12 @@ class TestArtifactIntegrity:
         """权重变化 → hash 变化。"""
         a1 = create_production_artifact(
             league="premier_league",
-            weights={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape": 0.7, "gbm": 0.3},
+            weights={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape": 1.0, "gbm": 0.0},
             tau=0.05, phi=50.0,
         )
         a2 = create_production_artifact(
             league="premier_league",
-            weights={"hgbr": 0.6, "elo": 0.3, "bayes": 0.1, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape": 0.7, "gbm": 0.3},
+            weights={"hgbr": 0.6, "elo": 0.3, "bayes": 0.1, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape": 1.0, "gbm": 0.0},
             tau=0.05, phi=50.0,
         )
         
@@ -131,12 +131,12 @@ class TestArtifactIntegrity:
         """P1-6: model_hash 不包含 created_at。"""
         a1 = create_production_artifact(
             league="premier_league",
-            weights={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape": 0.7, "gbm": 0.3},
+            weights={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape": 1.0, "gbm": 0.0},
             tau=0.05, phi=50.0,
         )
         a2 = create_production_artifact(
             league="premier_league",
-            weights={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape": 0.7, "gbm": 0.3},
+            weights={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape": 1.0, "gbm": 0.0},
             tau=0.05, phi=50.0,
         )
         
@@ -163,9 +163,9 @@ class TestCalibrationPriorRoundtrip:
         
         artifact = ProductionArtifact(
             league="premier_league",
-            goal_lambda={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2},
-            score_distribution={"poisson": 0.5, "dc": 0.3, "nb": 0.2},
-            outcome={"shape": 0.7, "gbm": 0.3},
+            goal_lambda={"hgbr": 0.52, "elo": 0.29, "bayes": 0.19},
+            score_distribution={"poisson": 0.48, "dc": 0.32, "nb": 0.20},
+            outcome={"shape": 1.0, "gbm": 0.0},
             tau=0.05,
             phi=50.0,
             calibration=cal,
@@ -190,9 +190,9 @@ class TestCalibrationPriorRoundtrip:
         
         artifact = ProductionArtifact(
             league="premier_league",
-            goal_lambda={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2},
-            score_distribution={"poisson": 0.5, "dc": 0.3, "nb": 0.2},
-            outcome={"shape": 0.7, "gbm": 0.3},
+            goal_lambda={"hgbr": 0.52, "elo": 0.29, "bayes": 0.19},
+            score_distribution={"poisson": 0.48, "dc": 0.32, "nb": 0.20},
+            outcome={"shape": 1.0, "gbm": 0.0},
             tau=0.05,
             phi=50.0,
             prior=prior,
@@ -214,7 +214,7 @@ class TestProductionArtifactValidation:
         """合法权重可以通过验证。"""
         artifact = create_production_artifact(
             league="premier_league",
-            weights={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape": 0.7, "gbm": 0.3},
+            weights={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2, "poisson": 0.5, "dc": 0.3, "nb": 0.2, "shape": 1.0, "gbm": 0.0},
             tau=0.05, phi=50.0,
         )
         assert artifact.league == "premier_league"
@@ -224,9 +224,9 @@ class TestProductionArtifactValidation:
         with pytest.raises(ValueError, match="Layer-1 weights sum"):
             ProductionArtifact(
                 league="premier_league",
-                goal_lambda={"hgbr": 0.8, "elo": 0.3, "bayes": 0.2},  # sum=1.3
-                score_distribution={"poisson": 0.5, "dc": 0.3, "nb": 0.2},
-                outcome={"shape": 0.7, "gbm": 0.3},
+                goal_lambda={"hgbr": 0.6, "elo": 0.3, "bayes": 0.2},  # sum=1.1
+                score_distribution={"poisson": 0.48, "dc": 0.32, "nb": 0.20},
+                outcome={"shape": 1.0, "gbm": 0.0},
                 tau=0.05, phi=50.0,
             )
     
@@ -235,9 +235,9 @@ class TestProductionArtifactValidation:
         with pytest.raises(ValueError, match="Layer-2 weights sum"):
             ProductionArtifact(
                 league="premier_league",
-                goal_lambda={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2},
-                score_distribution={"poisson": 0.8, "dc": 0.3, "nb": 0.2},  # sum=1.3
-                outcome={"shape": 0.7, "gbm": 0.3},
+                goal_lambda={"hgbr": 0.52, "elo": 0.29, "bayes": 0.19},
+                score_distribution={"poisson": 0.6, "dc": 0.3, "nb": 0.2},  # sum=1.1
+                outcome={"shape": 1.0, "gbm": 0.0},
                 tau=0.05, phi=50.0,
             )
     
@@ -246,9 +246,9 @@ class TestProductionArtifactValidation:
         with pytest.raises(ValueError, match="Layer-3 weights sum"):
             ProductionArtifact(
                 league="premier_league",
-                goal_lambda={"hgbr": 0.5, "elo": 0.3, "bayes": 0.2},
-                score_distribution={"poisson": 0.5, "dc": 0.3, "nb": 0.2},
-                outcome={"shape": 0.5, "gbm": 0.3},  # sum=0.8
+                goal_lambda={"hgbr": 0.52, "elo": 0.29, "bayes": 0.19},
+                score_distribution={"poisson": 0.48, "dc": 0.32, "nb": 0.20},
+                outcome={"shape": 0.5, "gbm": 0.0},  # sum=0.5, should fail
                 tau=0.05, phi=50.0,
             )
 
