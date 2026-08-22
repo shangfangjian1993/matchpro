@@ -60,7 +60,7 @@ class BaseSource(ABC):
         self.league_type = league_type
         self.http = http_client
         self.cache = cache
-        self._logger = __import__("logging").get_logger(
+        self._logger = __import__("logging").getLogger(
             f"{type(self).__module__}.{type(self).__name__}"
         )
 

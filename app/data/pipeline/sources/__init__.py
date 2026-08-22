@@ -7,7 +7,7 @@ from app.data.pipeline.sources.understat import UnderstatSource
 from app.data.pipeline.sources.api_football import ApiFootballSource
 from app.data.pipeline.sources.statsbomb import StatsBombSource
 from app.data.pipeline.sources.zafronix import ZafronixSource
-from app.data.pipeline.sources.fdo import FdoSource
+from app.data.pipeline.sources.zafronix import FdoSource
 
 __all__ = [
     "BaseSource",

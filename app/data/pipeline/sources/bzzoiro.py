@@ -220,7 +220,7 @@ class BzzoiroSource(BaseSource):
         http_client=None,
         cache=None,
     ) -> None:
-        super().__init__(league_type, http_client, cache)
+        super().__init__(league_type=league_type, http_client=http_client, cache=cache)
         self.data_type = data_type
         if data_type == "stats":
             self.SOURCE_NAME = "bzzoiro_stats"

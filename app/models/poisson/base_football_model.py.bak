@@ -174,6 +174,11 @@ class BaseFootballModel(ABC):
         if not feature_columns:
             raise ValueError("没有可用的数值特征列,请检查输入数据")
 
+        # 检查数据质量
+        self._validate_data_quality(
+            prepared_data[feature_columns], prepared_data[target_column]
+        )
+
         # 初始化模型
         self.model = PoissonLossHGBR(**self.config.parameters)
 
@@ -199,11 +204,6 @@ class BaseFootballModel(ABC):
         X_train = X_train[keep_cols]
         X_eval = X_eval[keep_cols]
         feature_columns = keep_cols
-
-        # 数据质量校验(在剔除高缺失列之后,仅检查实际参与训练的特征)
-        self._validate_data_quality(
-            prepared_data[feature_columns], prepared_data[target_column]
-        )
 
         # 时间衰减样本权重(评审 P1):指数衰减 + 下限保护 + 均值归一,
         # 配置在 configs/models.yaml training.sample_weight(enabled/half_life_days/min_weight)。
